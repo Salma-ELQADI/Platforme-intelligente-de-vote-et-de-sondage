@@ -50,9 +50,11 @@ const register = async (req, res) => {
     });
   } catch (error) {
     console.error('Erreur register:', error);
+    console.error('Stack trace:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Erreur interne du serveur',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
     });
   }
 };
