@@ -20,6 +20,33 @@ const registerSchema = Joi.object({
   }),
 });
 
+// Login schema: accepts indifferently an "identifier" field (email or
+// username), or — for compatibility with possibly existing forms — the "email"
+// or "username" fields. At least one of the three is required.
+const loginSchema = Joi.object({
+  identifier: Joi.string().messages({
+    'string.base': 'L\'identifiant doit être une chaîne de caractères',
+    'string.empty': 'Veuillez fournir votre email ou nom d\'utilisateur',
+  }),
+  email: Joi.string().messages({
+    'string.base': 'L\'email doit être une chaîne de caractères',
+    'string.empty': 'Veuillez fournir votre email ou nom d\'utilisateur',
+  }),
+  username: Joi.string().messages({
+    'string.base': 'Le nom d\'utilisateur doit être une chaîne de caractères',
+    'string.empty': 'Veuillez fournir votre email ou nom d\'utilisateur',
+  }),
+  password: Joi.string().required().messages({
+    'string.base': 'Le mot de passe est obligatoire',
+    'string.empty': 'Le mot de passe est obligatoire',
+    'any.required': 'Le mot de passe est obligatoire',
+  }),
+})
+  .or('identifier', 'email', 'username')
+  .messages({
+    'object.missing': 'Veuillez fournir votre email ou nom d\'utilisateur',
+  });
+
 const validate = (schema) => (req, res, next) => {
   const { error } = schema.validate(req.body, { abortEarly: false });
 
@@ -35,4 +62,4 @@ const validate = (schema) => (req, res, next) => {
   next();
 };
 
-module.exports = { validate, registerSchema };
+module.exports = { validate, registerSchema, loginSchema };

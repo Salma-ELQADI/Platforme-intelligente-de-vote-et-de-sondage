@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { Op } = require('sequelize');
 const User = require('../models/User');
+const { addTokenToBlocklist } = require('../middlewares/tokenBlocklist');
 
 const generateToken = (userId) => {
   return jwt.sign(
@@ -59,4 +60,87 @@ const register = async (req, res) => {
   }
 };
 
-module.exports = { register };
+const login = async (req, res) => {
+  try {
+    const { identifier, email, username, password } = req.body;
+    // Accept indifferently "identifier" (email or username) or, for
+    // compatibility with existing forms, "email" / "username". One is enough.
+    const loginIdentifier = identifier || email || username;
+
+    // The password is excluded by the default scope, so we query without it.
+    const user = await User.unscoped().findOne({
+      where: {
+        [Op.or]: [
+          { email: loginIdentifier },
+          { username: loginIdentifier },
+        ],
+      },
+    });
+
+    // Generic message to avoid revealing whether the identifier exists.
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Identifiants invalides',
+      });
+    }
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Identifiants invalides',
+      });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({
+        success: false,
+        message: 'Votre compte est désactivé. Contactez un administrateur.',
+      });
+    }
+
+    const token = generateToken(user.id);
+
+    res.status(200).json({
+      success: true,
+      message: 'Connexion réussie',
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt,
+      },
+    });
+  } catch (error) {
+    console.error('Erreur login:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur interne du serveur',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined,
+    });
+  }
+};
+
+const logout = async (req, res) => {
+  try {
+    const token = req.token;
+    const decoded = jwt.decode(token);
+    addTokenToBlocklist(token, decoded && decoded.exp);
+
+    res.status(200).json({
+      success: true,
+      message: 'Déconnexion réussie',
+    });
+  } catch (error) {
+    console.error('Erreur logout:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur interne du serveur',
+    });
+  }
+};
+
+module.exports = { register, login, logout };
