@@ -1,0 +1,24 @@
+# Local PostgreSQL for development and tests.
+# Creates two databases: "votelive" (dev) and "votelive_test" (automated tests).
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: votelive-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: votelive
+      POSTGRES_PASSWORD: votelive
+      POSTGRES_DB: votelive
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/src/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U votelive -d votelive"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

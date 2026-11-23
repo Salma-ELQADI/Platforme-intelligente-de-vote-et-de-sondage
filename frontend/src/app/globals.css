@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------
+   VoteLive — The Moroccan Editorial
+   Two inks only: warm paper and brown printing ink.
+   ------------------------------------------------------------------ */
+@theme inline {
+  --font-serif: var(--font-playfair);
+  --font-sans: var(--font-dmsans);
+  --font-mono: var(--font-plexmono);
+  --font-arabic: var(--font-amiri);
+
+  --color-cream: #e9ddc8; /* page background */
+  --color-paper: #f5f0e6; /* paper surface */
+  --color-ink: #38291f;   /* primary text, solid fills */
+  --color-umber: #70513b; /* secondary text, hover ink */
+  --color-muted: #a9957e; /* ornaments only (not for text) */
+  --color-rule: #cbbba4;  /* borders, separators, tracks */
+}
+
+:root {
+  color-scheme: light;
+}
+
+/* Printed-paper grain: a tiny SVG noise tile, no image request. */
+body,
+.paper-grain {
+  background-color: #e9ddc8;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .22 0 0 0 0 .16 0 0 0 0 .12 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  color: #38291f;
+}
+
+::selection {
+  background: #38291f;
+  color: #f5f0e6;
+}
+
+:focus-visible {
+  outline: 2px solid #38291f;
+  outline-offset: 2px;
+}
+
+/* Small uppercase labels used for kickers, categories and metadata */
+.kicker {
+  font-family: var(--font-dmsans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+/* Drop cap for article introductions */
+.dropcap::first-letter {
+  float: left;
+  font-family: var(--font-playfair);
+  font-size: 3.6em;
+  line-height: .8;
+  padding: .06em .08em 0 0;
+  font-weight: 700;
+}
+
+/* Diagonal hatching, like engraved shading in print charts */
+.hatch {
+  background-image: repeating-linear-gradient(135deg, #38291f 0 1px, transparent 1px 5px);
+}
+
+/* ---------- Motion (disabled for reduced-motion users) ---------- */
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes press {
+  0% { transform: scaleX(0); transform-origin: left; }
+  50% { transform: scaleX(1); transform-origin: left; }
+  50.01% { transform-origin: right; }
+  100% { transform: scaleX(0); transform-origin: right; }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .25; }
+}
+@keyframes ink-flash {
+  from { background-color: #38291f14; }
+  to { background-color: transparent; }
+}
+@keyframes stamp {
+  from { opacity: 0; transform: scale(1.25) rotate(-6deg); }
+  to { opacity: 1; transform: scale(1) rotate(-6deg); }
+}
+
+.animate-page-in { animation: page-in .3s ease-out both; }
+.animate-toast-in { animation: toast-in .2s ease-out both; }
+.animate-press { animation: press 1.4s cubic-bezier(.6,0,.3,1) infinite; }
+.animate-blink { animation: blink 1.6s ease-in-out infinite; }
+.animate-ink-flash { animation: ink-flash 1.4s ease-out; }
+.animate-stamp { animation: stamp .35s cubic-bezier(.2,.9,.3,1.2) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}

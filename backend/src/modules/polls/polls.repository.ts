@@ -1,0 +1,191 @@
+import { pool, query, Queryable } from '../../db/pool';
+import type { OptionResult, Poll, PollRow, PollStatus } from './polls.types';
+
+/**
+ * Base SELECT used by every read: poll + creator + options (as a JSON array)
+ * + total votes + the requesting user's vote. One round trip per page,
+ * no N+1 queries. $1 is always the id of the requesting user.
+ */
+const POLL_SELECT = `
+  SELECT p.*,
+         u.username AS creator_username,
+         (p.status = 'ACTIVE' AND p.end_time > now()) AS is_open,
+         COALESCE(
+           (SELECT json_agg(json_build_object('id', o.id, 'text', o.option_text, 'position', o.position)
+                            ORDER BY o.position)
+              FROM poll_options o WHERE o.poll_id = p.id),
+           '[]'::json) AS options,
+         (SELECT COUNT(*) FROM votes v WHERE v.poll_id = p.id)::int AS total_votes,
+         (SELECT v.option_id FROM votes v WHERE v.poll_id = p.id AND v.user_id = $1) AS my_vote_option_id
+    FROM polls p
+    JOIN users u ON u.id = p.created_by`;
+
+type FullPollRow = PollRow & {
+  creator_username: string;
+  is_open: boolean;
+  options: Poll['options'];
+  total_votes: number;
+  my_vote_option_id: string | null;
+};
+
+function toPoll(r: FullPollRow): Poll {
+  return {
+    id: r.id,
+    question: r.question,
+    description: r.description,
+    status: r.status,
+    isOpen: r.is_open,
+    creationMode: r.creation_mode,
+    resultsVisibility: r.results_visibility,
+    endTime: r.end_time.toISOString(),
+    publishedAt: r.published_at?.toISOString() ?? null,
+    closedAt: r.closed_at?.toISOString() ?? null,
+    createdAt: r.created_at.toISOString(),
+    updatedAt: r.updated_at.toISOString(),
+    creator: { id: r.created_by, username: r.creator_username },
+    options: r.options,
+    totalVotes: r.total_votes,
+    myVoteOptionId: r.my_vote_option_id,
+  };
+}
+
+export async function findPollById(id: string, viewerId: string, db: Queryable = pool): Promise<Poll | null> {
+  const { rows } = await db.query<FullPollRow>(`${POLL_SELECT} WHERE p.id = $2`, [viewerId, id]);
+  return rows[0] ? toPoll(rows[0]) : null;
+}
+
+/**
+ * Locks the poll row for the rest of the current transaction.
+ * FOR UPDATE: exclusive (used before modifying the poll).
+ * FOR SHARE: allows other readers/voters but blocks modifications (used when voting).
+ */
+export async function lockPoll(db: Queryable, id: string, mode: 'UPDATE' | 'SHARE') {
+  const { rows } = await db.query<PollRow & { expired: boolean }>(
+    `SELECT *, end_time <= now() AS expired FROM polls WHERE id = $1 FOR ${mode === 'UPDATE' ? 'UPDATE' : 'SHARE'}`,
+    [id],
+  );
+  return rows[0] ?? null;
+}
+
+export async function listPublicPolls(viewerId: string, q: { status: PollStatus; search?: string; limit: number; offset: number }) {
+  const params: unknown[] = [viewerId, q.status, q.limit, q.offset];
+  let searchClause = '';
+  if (q.search) {
+    params.push(`%${q.search}%`);
+    searchClause = 'AND p.question ILIKE $5';
+  }
+  // ACTIVE list: soonest closing first. CLOSED list: most recently closed first.
+  const order = q.status === 'ACTIVE' ? 'p.end_time ASC' : 'p.closed_at DESC';
+  const [{ rows }, count] = await Promise.all([
+    query<FullPollRow>(
+      `${POLL_SELECT} WHERE p.status = $2 ${searchClause} ORDER BY ${order} LIMIT $3 OFFSET $4`,
+      params,
+    ),
+    query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total FROM polls p WHERE p.status = $1 ${q.search ? 'AND p.question ILIKE $2' : ''}`,
+      q.search ? [q.status, `%${q.search}%`] : [q.status],
+    ),
+  ]);
+  return { polls: rows.map(toPoll), total: count.rows[0].total };
+}
+
+export async function listPollsByCreator(userId: string, status?: PollStatus) {
+  const params: unknown[] = [userId];
+  let statusClause = '';
+  if (status) {
+    params.push(status);
+    statusClause = 'AND p.status = $2';
+  }
+  const { rows } = await query<FullPollRow>(
+    `${POLL_SELECT} WHERE p.created_by = $1 ${statusClause} ORDER BY p.created_at DESC`,
+    params,
+  );
+  return rows.map(toPoll);
+}
+
+export async function insertPoll(
+  db: Queryable,
+  data: { question: string; description?: string | null; createdBy: string; creationMode: string; resultsVisibility: string; endTime: Date },
+): Promise<string> {
+  const { rows } = await db.query<{ id: string }>(
+    `INSERT INTO polls (question, description, created_by, creation_mode, results_visibility, end_time)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+    [data.question, data.description ?? null, data.createdBy, data.creationMode, data.resultsVisibility, data.endTime],
+  );
+  return rows[0].id;
+}
+
+/** Inserts all options in a single statement using unnest() on two parallel arrays. */
+export async function insertOptions(db: Queryable, pollId: string, options: string[]) {
+  await db.query(
+    `INSERT INTO poll_options (poll_id, option_text, position)
+     SELECT $1, t.text, t.pos FROM unnest($2::text[], $3::smallint[]) AS t(text, pos)`,
+    [pollId, options, options.map((_, i) => i)],
+  );
+}
+
+export async function replaceOptions(db: Queryable, pollId: string, options: string[]) {
+  await db.query('DELETE FROM poll_options WHERE poll_id = $1', [pollId]);
+  await insertOptions(db, pollId, options);
+}
+
+export async function updatePollFields(
+  db: Queryable,
+  id: string,
+  data: { question?: string; description?: string | null; endTime?: Date; resultsVisibility?: string },
+) {
+  await db.query(
+    `UPDATE polls SET
+       question           = COALESCE($2, question),
+       description        = CASE WHEN $3::boolean THEN $4 ELSE description END,
+       end_time           = COALESCE($5, end_time),
+       results_visibility = COALESCE($6, results_visibility)
+     WHERE id = $1`,
+    [
+      id,
+      data.question ?? null,
+      data.description !== undefined,
+      data.description ?? null,
+      data.endTime ?? null,
+      data.resultsVisibility ?? null,
+    ],
+  );
+}
+
+export async function countOptions(db: Queryable, pollId: string): Promise<number> {
+  const { rows } = await db.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM poll_options WHERE poll_id = $1', [pollId]);
+  return rows[0].n;
+}
+
+export async function setPollActive(db: Queryable, id: string) {
+  await db.query(`UPDATE polls SET status = 'ACTIVE', published_at = now() WHERE id = $1`, [id]);
+}
+
+export async function deletePoll(db: Queryable, id: string) {
+  await db.query('DELETE FROM polls WHERE id = $1', [id]);
+}
+
+/** Vote counts per option, computed by PostgreSQL with a LEFT JOIN (options with 0 votes included). */
+export async function computeResults(pollId: string, db: Queryable = pool): Promise<{ totalVotes: number; options: OptionResult[] }> {
+  const { rows } = await db.query<{ id: string; option_text: string; position: number; votes: number }>(
+    `SELECT o.id, o.option_text, o.position, COUNT(v.id)::int AS votes
+       FROM poll_options o
+       LEFT JOIN votes v ON v.option_id = o.id
+      WHERE o.poll_id = $1
+      GROUP BY o.id
+      ORDER BY o.position`,
+    [pollId],
+  );
+  const totalVotes = rows.reduce((sum, r) => sum + r.votes, 0);
+  return {
+    totalVotes,
+    options: rows.map((r) => ({
+      optionId: r.id,
+      text: r.option_text,
+      position: r.position,
+      votes: r.votes,
+      // One decimal place; 0 when nobody has voted yet (avoids division by zero).
+      percentage: totalVotes === 0 ? 0 : Math.round((r.votes / totalVotes) * 1000) / 10,
+    })),
+  };
+}
