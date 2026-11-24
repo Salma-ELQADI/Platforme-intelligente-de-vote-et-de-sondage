@@ -174,7 +174,7 @@ Redis, Kafka, microservices, Kubernetes, an ORM and a state-management library (
 
 ```
 .
-├── docker-compose.yml            # PostgreSQL 16 for dev + creates the votelive_test database
+├── docker-compose.yml            # full stack (PostgreSQL 16 + backend + frontend); creates the votelive_test database
 ├── README.md                     # this file (technical reference, English)
 ├── docs/
 │   ├── PRESENTATION.md           # French academic presentation (jury)
@@ -1221,7 +1221,7 @@ flowchart LR
 ### 16.4 Running the tests
 
 ```bash
-docker compose up -d          # PostgreSQL (creates votelive_test on first start)
+docker compose up -d postgres # PostgreSQL (creates votelive_test on first start)
 cd backend
 npm test                      # vitest run → 5 files, 63 tests
 npm run test:watch            # watch mode
@@ -1277,7 +1277,24 @@ Use `TEST_DATABASE_URL=postgres://…/something_test npm test` to target another
 
 > Use `localhost` (not `127.0.0.1`) for both URLs in the browser. The session cookie is scoped to the host name, and ports do not matter for cookies.
 
-### 17.3 Quick start with the launcher script
+### 17.3 Run everything with Docker (one command)
+
+The root `docker-compose.yml` builds and runs the whole stack: PostgreSQL, the backend (migrations and demo data applied on start) and the frontend. Only Docker is required.
+
+```bash
+cp .env.example .env     # optional: JWT_SECRET, OPENROUTER_API_KEY, SEED_DEMO, FRONTEND_PORT
+docker compose up --build -d
+```
+
+| URL | Service |
+|---|---|
+| <http://localhost:3000> | web app (port set by `FRONTEND_PORT`) |
+| <http://localhost:5000/api/docs> | API + Swagger |
+| `localhost:5432` | PostgreSQL (`votelive` / `votelive`) |
+
+`docker compose logs -f backend` follows the API logs, and `docker compose down` stops the stack (`-v` also deletes the data). The demo accounts below are created unless `SEED_DEMO=false`. For local development with `npm run dev`, start only the database with `docker compose up -d postgres`.
+
+### 17.4 Quick start with the launcher script
 
 `start.sh` (repository root) checks the environment, prepares it, and starts both applications:
 
@@ -1291,14 +1308,14 @@ Press **Ctrl+C** to stop the backend and frontend (the database container keeps 
 
 **Windows:** run it from **Git Bash** (installed with Git for Windows) or WSL, with **Docker Desktop** started. The script detects Windows, explains missing tools with Windows-specific instructions (Node.js installer, Docker Desktop, a local PostgreSQL service occupying port 5432), and stops the Node process tree with `taskkill` on Ctrl+C. `.gitattributes` forces LF line endings for `*.sh` so the script is not broken by a CRLF checkout.
 
-### 17.4 Step by step (manual)
+### 17.5 Step by step (manual)
 
 ```bash
 # 1. Clone
 git clone <repository-url> && cd Platforme-intelligente-de-vote-et-de-sondage
 
 # 2. PostgreSQL (dev DB "votelive" + test DB "votelive_test")
-docker compose up -d
+docker compose up -d postgres
 
 # 3. Backend
 cd backend
@@ -1329,7 +1346,7 @@ npm run dev                # http://localhost:3000
 
 **Without Docker:** create a database and a user in your PostgreSQL, set `DATABASE_URL`, then run `npm run migrate`. For tests, also create a database whose name contains `test` and export `TEST_DATABASE_URL`.
 
-### 17.5 Commands
+### 17.6 Commands
 
 | Location | Command | Purpose |
 |---|---|---|
@@ -1342,9 +1359,10 @@ npm run dev                # http://localhost:3000
 | frontend | `npm run dev` | Next.js dev server |
 | frontend | `npm run lint` | ESLint |
 | frontend | `npm run build` → `npm start` | production build and server |
-| root | `docker compose down -v` | stop PostgreSQL **and delete its data** (fresh start) |
+| root | `docker compose up --build -d` | build and run the full stack in Docker |
+| root | `docker compose down -v` | stop the containers **and delete the database data** (fresh start) |
 
-### 17.6 Production checklist
+### 17.7 Production checklist
 
 `NODE_ENV=production` (Secure cookies) · HTTPS terminated by a reverse proxy (the app sets `trust proxy` to 1 hop) · strong `JWT_SECRET` · `CLIENT_URL` set to the real frontend origin · `npm run build && npm run migrate:prod && npm start` for the backend · `npm run build && npm start` for the frontend · frontend and API on the **same site** (e.g. `app.example.com` and `api.example.com`) so the `SameSite=Lax` cookie is sent.
 
@@ -1398,7 +1416,6 @@ Realistic next steps, **not implemented**:
 5. Charts (pie and timeline of votes) in addition to progress bars.
 6. AI: a moderation step on the topic and output, model fallback (`models: [...]` in OpenRouter), suggestions of options for a question the user wrote, cost tracking per user.
 7. Observability: request IDs, Prometheus metrics (vote rate, AI latency and errors), health checks for OpenRouter.
-8. Dockerfiles for the backend and frontend to deploy the full stack with one `docker compose up`.
 
 ---
 
@@ -1412,7 +1429,7 @@ You do not need to be an expert in every technology. You need to explain *why* e
 
 ### Suggested 10-minute technical demo script
 
-1. `docker compose up -d`, `npm run dev` (backend + frontend). Show `GET /api/health` and Swagger at `/api/docs`.
+1. `docker compose up -d postgres`, `npm run dev` (backend + frontend). Show `GET /api/health` and Swagger at `/api/docs`.
 2. Log in as **alice** in one browser and **bob** in a private window. Open the same LIVE poll and vote as Bob. Alice's bars move without a reload (rooms + broadcast after commit).
 3. Vote again as Bob with Swagger or curl → `409 ALREADY_VOTED`. Show `votes_one_per_user_per_poll` in the migration file.
 4. Create a poll with the AI tab. Show the backend log line and that the browser never sees the key (DevTools → Network). Edit an option, save as a draft, publish.
@@ -1773,7 +1790,7 @@ You do not need to be an expert in every technology. You need to explain *why* e
 6. **Alternatives / complements.** WAF, CAPTCHA on registration, 2FA, CSRF tokens, CSP fine-tuning, dependency scanning (`npm audit`, Dependabot).
 7. **Pros/cons.** + layered protection proportionate to an academic platform. − some enterprise controls are intentionally absent (§19).
 8. **Risks.** Misconfiguration in production (no HTTPS, `NODE_ENV` not set), vulnerable dependencies, social engineering.
-9. **Handling.** Production checklist (§17.6), `npm audit` reported 0 vulnerabilities at install time, secure defaults (`Secure` cookies when `NODE_ENV=production`).
+9. **Handling.** Production checklist (§17.7), `npm audit` reported 0 vulnerabilities at install time, secure defaults (`Secure` cookies when `NODE_ENV=production`).
 10. **Jury.** *"Name the three most important security mechanisms for voting integrity."* (1) Server-side authentication on every vote. (2) `UNIQUE (poll_id, user_id)` + composite FK in PostgreSQL. (3) Expiry checked with the database clock inside the vote transaction. *"What would you add first for production?"* Refresh tokens with revocation, a Redis adapter and rate-limit store for scaling, and E2E tests in CI.
 
 ---

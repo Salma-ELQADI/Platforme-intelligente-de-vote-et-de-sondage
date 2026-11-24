@@ -1,5 +1,9 @@
-# Local PostgreSQL for development and tests.
-# Creates two databases: "votelive" (dev) and "votelive_test" (automated tests).
+# VoteLive — full stack: PostgreSQL + Express/Socket.IO API + Next.js frontend.
+#
+#   docker compose up --build        → http://localhost:3000 (API on :5000, docs on :5000/api/docs)
+#   docker compose up postgres       → database only, for local `npm run dev`
+#
+# Optional settings are read from a root .env file (see .env.example).
 services:
   postgres:
     image: postgres:16-alpine
@@ -13,12 +17,50 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Creates the extra "votelive_test" database on first start.
       - ./backend/src/db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U votelive -d votelive"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  backend:
+    build: ./backend
+    container_name: votelive-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      CLIENT_URL: http://localhost:${FRONTEND_PORT:-3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://votelive:votelive@postgres:5432/votelive
+      JWT_SECRET: ${JWT_SECRET:-docker-dev-secret-change-me-0123456789abcdef}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-openai/gpt-4o-mini}
+      POLL_CLOSER_INTERVAL_MS: ${POLL_CLOSER_INTERVAL_MS:-5000}
+      SEED_DEMO: ${SEED_DEMO:-true}
+    ports:
+      - "5000:5000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Seen by the browser, so they point at the host-published API port.
+        NEXT_PUBLIC_API_URL: http://localhost:5000/api
+        NEXT_PUBLIC_SOCKET_URL: http://localhost:5000
+    container_name: votelive-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
 
 volumes:
   pgdata:

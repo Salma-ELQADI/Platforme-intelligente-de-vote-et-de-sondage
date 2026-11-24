@@ -162,7 +162,7 @@ for app in backend frontend; do
 done
 
 step "7. Database"
-(cd "$ROOT" && $COMPOSE up -d) >/dev/null 2>&1 || { fail "Could not start the PostgreSQL container ($COMPOSE up -d)."; exit 1; }
+(cd "$ROOT" && $COMPOSE up -d postgres) >/dev/null 2>&1 || { fail "Could not start the PostgreSQL container ($COMPOSE up -d postgres)."; exit 1; }
 printf "  Waiting for PostgreSQL"
 for _ in $(seq 1 60); do
   [ "$(docker inspect -f '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null)" = "healthy" ] && break
