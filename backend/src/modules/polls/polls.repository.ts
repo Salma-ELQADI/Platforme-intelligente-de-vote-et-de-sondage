@@ -1,11 +1,17 @@
 import { pool, query, Queryable } from '../../db/pool';
-import type { OptionResult, Poll, PollRow, PollStatus } from './polls.types';
+import type { OptionResult, Poll, PollAccess, PollRow, PollStatus, PollVoter } from './polls.types';
 
 /**
  * Base SELECT used by every read: poll + creator + options (as a JSON array)
  * + total votes + the requesting user's vote. One round trip per page,
  * no N+1 queries. $1 is always the id of the requesting user.
  */
+/** true when the requesting user ($1) is on the invited voters list of poll p. */
+const IS_INVITED = 'EXISTS (SELECT 1 FROM poll_voters pv WHERE pv.poll_id = p.id AND pv.user_id = $1)';
+
+/** Rows the requesting user ($1) may see in lists: public polls, their own, and private polls they are invited to. */
+const VISIBLE_TO_VIEWER = `(p.access = 'PUBLIC' OR p.created_by = $1 OR ${IS_INVITED})`;
+
 const POLL_SELECT = `
   SELECT p.*,
          u.username AS creator_username,
@@ -16,7 +22,8 @@ const POLL_SELECT = `
               FROM poll_options o WHERE o.poll_id = p.id),
            '[]'::json) AS options,
          (SELECT COUNT(*) FROM votes v WHERE v.poll_id = p.id)::int AS total_votes,
-         (SELECT v.option_id FROM votes v WHERE v.poll_id = p.id AND v.user_id = $1) AS my_vote_option_id
+         (SELECT v.option_id FROM votes v WHERE v.poll_id = p.id AND v.user_id = $1) AS my_vote_option_id,
+         (p.created_by <> $1 AND (p.access = 'PUBLIC' OR ${IS_INVITED})) AS can_vote
     FROM polls p
     JOIN users u ON u.id = p.created_by`;
 
@@ -26,6 +33,7 @@ type FullPollRow = PollRow & {
   options: Poll['options'];
   total_votes: number;
   my_vote_option_id: string | null;
+  can_vote: boolean;
 };
 
 function toPoll(r: FullPollRow): Poll {
@@ -37,6 +45,7 @@ function toPoll(r: FullPollRow): Poll {
     isOpen: r.is_open,
     creationMode: r.creation_mode,
     resultsVisibility: r.results_visibility,
+    access: r.access,
     endTime: r.end_time.toISOString(),
     publishedAt: r.published_at?.toISOString() ?? null,
     closedAt: r.closed_at?.toISOString() ?? null,
@@ -46,6 +55,8 @@ function toPoll(r: FullPollRow): Poll {
     options: r.options,
     totalVotes: r.total_votes,
     myVoteOptionId: r.my_vote_option_id,
+    canVote: r.can_vote,
+    voters: null,
   };
 }
 
@@ -78,12 +89,13 @@ export async function listPublicPolls(viewerId: string, q: { status: PollStatus;
   const order = q.status === 'ACTIVE' ? 'p.end_time ASC' : 'p.closed_at DESC';
   const [{ rows }, count] = await Promise.all([
     query<FullPollRow>(
-      `${POLL_SELECT} WHERE p.status = $2 ${searchClause} ORDER BY ${order} LIMIT $3 OFFSET $4`,
+      `${POLL_SELECT} WHERE p.status = $2 AND ${VISIBLE_TO_VIEWER} ${searchClause} ORDER BY ${order} LIMIT $3 OFFSET $4`,
       params,
     ),
     query<{ total: number }>(
-      `SELECT COUNT(*)::int AS total FROM polls p WHERE p.status = $1 ${q.search ? 'AND p.question ILIKE $2' : ''}`,
-      q.search ? [q.status, `%${q.search}%`] : [q.status],
+      `SELECT COUNT(*)::int AS total FROM polls p
+        WHERE p.status = $2 AND ${VISIBLE_TO_VIEWER} ${q.search ? 'AND p.question ILIKE $3' : ''}`,
+      q.search ? [viewerId, q.status, `%${q.search}%`] : [viewerId, q.status],
     ),
   ]);
   return { polls: rows.map(toPoll), total: count.rows[0].total };
@@ -105,12 +117,15 @@ export async function listPollsByCreator(userId: string, status?: PollStatus) {
 
 export async function insertPoll(
   db: Queryable,
-  data: { question: string; description?: string | null; createdBy: string; creationMode: string; resultsVisibility: string; endTime: Date },
+  data: {
+    question: string; description?: string | null; createdBy: string; creationMode: string;
+    resultsVisibility: string; access: PollAccess; endTime: Date;
+  },
 ): Promise<string> {
   const { rows } = await db.query<{ id: string }>(
-    `INSERT INTO polls (question, description, created_by, creation_mode, results_visibility, end_time)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [data.question, data.description ?? null, data.createdBy, data.creationMode, data.resultsVisibility, data.endTime],
+    `INSERT INTO polls (question, description, created_by, creation_mode, results_visibility, access, end_time)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [data.question, data.description ?? null, data.createdBy, data.creationMode, data.resultsVisibility, data.access, data.endTime],
   );
   return rows[0].id;
 }
@@ -132,14 +147,15 @@ export async function replaceOptions(db: Queryable, pollId: string, options: str
 export async function updatePollFields(
   db: Queryable,
   id: string,
-  data: { question?: string; description?: string | null; endTime?: Date; resultsVisibility?: string },
+  data: { question?: string; description?: string | null; endTime?: Date; resultsVisibility?: string; access?: PollAccess },
 ) {
   await db.query(
     `UPDATE polls SET
        question           = COALESCE($2, question),
        description        = CASE WHEN $3::boolean THEN $4 ELSE description END,
        end_time           = COALESCE($5, end_time),
-       results_visibility = COALESCE($6, results_visibility)
+       results_visibility = COALESCE($6, results_visibility),
+       access             = COALESCE($7, access)
      WHERE id = $1`,
     [
       id,
@@ -148,8 +164,38 @@ export async function updatePollFields(
       data.description ?? null,
       data.endTime ?? null,
       data.resultsVisibility ?? null,
+      data.access ?? null,
     ],
   );
+}
+
+/** Replaces the whole invited voters list of a poll. */
+export async function replaceVoters(db: Queryable, pollId: string, userIds: string[]) {
+  await db.query('DELETE FROM poll_voters WHERE poll_id = $1', [pollId]);
+  if (userIds.length === 0) return;
+  await db.query(
+    `INSERT INTO poll_voters (poll_id, user_id) SELECT $1, unnest($2::uuid[]) ON CONFLICT DO NOTHING`,
+    [pollId, userIds],
+  );
+}
+
+export async function listVoters(pollId: string, db: Queryable = pool): Promise<PollVoter[]> {
+  const { rows } = await db.query<PollVoter>(
+    `SELECT u.id, u.username FROM poll_voters pv JOIN users u ON u.id = pv.user_id
+      WHERE pv.poll_id = $1 ORDER BY u.username`,
+    [pollId],
+  );
+  return rows;
+}
+
+export async function countVoters(db: Queryable, pollId: string): Promise<number> {
+  const { rows } = await db.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM poll_voters WHERE poll_id = $1', [pollId]);
+  return rows[0].n;
+}
+
+export async function isInvitedVoter(pollId: string, userId: string, db: Queryable = pool): Promise<boolean> {
+  const { rowCount } = await db.query('SELECT 1 FROM poll_voters WHERE poll_id = $1 AND user_id = $2', [pollId, userId]);
+  return (rowCount ?? 0) > 0;
 }
 
 export async function countOptions(db: Queryable, pollId: string): Promise<number> {

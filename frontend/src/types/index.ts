@@ -4,6 +4,7 @@ export type Role = "user" | "admin";
 export type PollStatus = "DRAFT" | "ACTIVE" | "CLOSED";
 export type ResultsVisibility = "LIVE" | "AFTER_CLOSE";
 export type CreationMode = "MANUAL" | "AI";
+export type PollAccess = "PUBLIC" | "PRIVATE";
 
 export interface User {
   id: string;
@@ -38,6 +39,16 @@ export interface Poll {
   options: PollOption[];
   totalVotes: number;
   myVoteOptionId: string | null;
+  access: PollAccess;
+  /** false for the poll's creator, and for non-invited users of a private poll. */
+  canVote: boolean;
+  /** Invited voters of a private poll; only sent to its creator and to admins. */
+  voters: PollVoter[] | null;
+}
+
+export interface PollVoter {
+  id: string;
+  username: string;
 }
 
 export interface OptionResult {
@@ -92,4 +103,7 @@ export interface PollFormValues {
   endTime: string; // ISO string
   resultsVisibility: ResultsVisibility;
   creationMode?: CreationMode;
+  access: PollAccess;
+  /** Usernames or emails of the invited voters (private polls only). */
+  voters: string[];
 }

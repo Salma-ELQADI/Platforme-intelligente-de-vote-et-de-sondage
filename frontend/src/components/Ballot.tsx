@@ -26,8 +26,10 @@ export function Ballot({
   onSubmit,
   voting,
   error,
+  isOwner,
 }: {
   poll: Poll;
+  isOwner: boolean;
   selected: string | null;
   onSelect: (id: string) => void;
   onSubmit: () => void;
@@ -35,7 +37,13 @@ export function Ballot({
   error: string | null;
 }) {
   const voted = poll.myVoteOptionId;
-  const open = poll.isOpen && !voted;
+  const open = poll.isOpen && !voted && poll.canVote;
+  // Why this user may not vote at all (the backend enforces the same rules).
+  const notAllowed = !voted && !poll.canVote
+    ? isOwner
+      ? "Vous êtes l’auteur de ce scrutin : vous ne pouvez pas y voter."
+      : "Ce scrutin est privé : vous ne figurez pas sur la liste des votants."
+    : null;
   const chosen = voted ?? selected;
 
   return (
@@ -45,7 +53,13 @@ export function Ballot({
           <p className="kicker text-ink">Bulletin de vote</p>
           <p className="mt-1 font-mono text-[11px] text-umber">Scrutin n° {serial(poll.id)}</p>
           <p className="mt-4 font-serif text-[15px] italic text-umber">
-            {open ? "Cochez une seule case, puis déposez votre bulletin." : voted ? "Votre bulletin a été déposé dans l’urne." : "Ce scrutin est clos."}
+            {open
+              ? "Cochez une seule case, puis déposez votre bulletin."
+              : voted
+                ? "Votre bulletin a été déposé dans l’urne."
+                : !poll.isOpen
+                  ? "Ce scrutin est clos."
+                  : notAllowed}
           </p>
         </div>
 

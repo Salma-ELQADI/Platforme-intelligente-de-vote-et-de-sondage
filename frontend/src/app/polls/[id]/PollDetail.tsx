@@ -110,6 +110,7 @@ export function PollDetail({ id }: { id: string }) {
           <StatusBadge status={poll.status} isOpen={poll.isOpen} />
           <Badge>{poll.creationMode === "AI" ? "Rédaction assistée par IA" : "Rédaction manuelle"}</Badge>
           <Badge>{poll.resultsVisibility === "LIVE" ? "Résultats en direct" : "Résultats à la clôture"}</Badge>
+          {poll.access === "PRIVATE" && <Badge className="text-ink">Scrutin privé</Badge>}
           {poll.status !== "DRAFT" && <LiveIndicator connected={connected} />}
         </div>
         <h1 className="mt-5 font-serif text-4xl font-black leading-[1.05] text-ink sm:text-6xl">{poll.question}</h1>
@@ -176,6 +177,17 @@ export function PollDetail({ id }: { id: string }) {
         </div>
       )}
 
+      {poll.voters && (
+        <div className="mt-6 max-w-4xl text-sm text-umber">
+          <span className="kicker mr-3">Votants invités ({poll.voters.length})</span>
+          {poll.voters.length ? (
+            <span className="font-mono text-xs text-ink">{poll.voters.map((v) => v.username).join(", ")}</span>
+          ) : (
+            <span className="italic">Aucun pour l’instant : invitez au moins une personne avant de publier.</span>
+          )}
+        </div>
+      )}
+
       {poll.status === "DRAFT" ? (
         <div className="mt-10 max-w-2xl">
           <Alert kind="info">Ce sondage est un brouillon : vous seul pouvez le lire. Publiez-le pour ouvrir le scrutin.</Alert>
@@ -196,7 +208,7 @@ export function PollDetail({ id }: { id: string }) {
               <SectionTitle>
                 <span id="vote">Votre vote</span>
               </SectionTitle>
-              <Ballot poll={poll} selected={selected} onSelect={setSelected} onSubmit={submitVote} voting={voting} error={voteError} />
+              <Ballot poll={poll} isOwner={isOwner} selected={selected} onSelect={setSelected} onSubmit={submitVote} voting={voting} error={voteError} />
             </section>
             <section className="lg:col-span-5 lg:border-l lg:border-rule lg:pl-10" aria-labelledby="resultats">
               <SectionTitle>

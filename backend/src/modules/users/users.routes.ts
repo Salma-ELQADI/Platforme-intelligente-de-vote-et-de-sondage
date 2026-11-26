@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { authenticate, requireRole } from '../../middleware/auth';
 import { uuidParam, validate } from '../../middleware/validate';
-import { findUserById, listUsers } from './users.repository';
-import { adminUpdateUserSchema, listUsersQuerySchema, updateProfileSchema } from './users.schemas';
+import { findActiveUsersByIdentifiers, findUserById, listUsers } from './users.repository';
+import { adminUpdateUserSchema, listUsersQuerySchema, lookupUserQuerySchema, updateProfileSchema } from './users.schemas';
 import * as usersService from './users.service';
 import { notFound } from '../../utils/errors';
 
@@ -18,6 +18,15 @@ usersRouter.get('/me', (req, res) => {
 usersRouter.patch('/me', validate({ body: updateProfileSchema }), async (req, res) => {
   const user = await usersService.updateProfile(req.user!.id, req.body);
   res.json({ success: true, data: { user } });
+});
+
+// GET /api/users/lookup?identifier=<username or email>
+// Used to invite voters to a private poll. Exact match only, and the email is
+// never returned: it only confirms that an account exists.
+usersRouter.get('/lookup', validate({ query: lookupUserQuerySchema }), async (req, res) => {
+  const [match] = await findActiveUsersByIdentifiers([(req.query as { identifier: string }).identifier]);
+  if (!match?.id) throw notFound('Aucun utilisateur ne correspond à ce nom ou à cet email');
+  res.json({ success: true, data: { user: { id: match.id, username: match.username } } });
 });
 
 // ---------- Administration (admin role only) ----------

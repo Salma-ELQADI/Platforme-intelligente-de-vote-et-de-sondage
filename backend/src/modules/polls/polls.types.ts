@@ -1,6 +1,7 @@
 export type PollStatus = 'DRAFT' | 'ACTIVE' | 'CLOSED';
 export type CreationMode = 'MANUAL' | 'AI';
 export type ResultsVisibility = 'LIVE' | 'AFTER_CLOSE';
+export type PollAccess = 'PUBLIC' | 'PRIVATE';
 
 export interface PollOption {
   id: string;
@@ -17,6 +18,8 @@ export interface Poll {
   isOpen: boolean;
   creationMode: CreationMode;
   resultsVisibility: ResultsVisibility;
+  /** PRIVATE: only the invited voters (plus the creator and admins) can see it. */
+  access: PollAccess;
   endTime: string;
   publishedAt: string | null;
   closedAt: string | null;
@@ -27,6 +30,15 @@ export interface Poll {
   totalVotes: number;
   /** Option chosen by the requesting user, or null if they have not voted. */
   myVoteOptionId: string | null;
+  /** Whether the requesting user is allowed to vote (never the creator; invited users only if PRIVATE). */
+  canVote: boolean;
+  /** Invited voters of a PRIVATE poll: only returned to its creator and to admins, otherwise null. */
+  voters: PollVoter[] | null;
+}
+
+export interface PollVoter {
+  id: string;
+  username: string;
 }
 
 export interface PollRow {
@@ -37,6 +49,7 @@ export interface PollRow {
   creation_mode: CreationMode;
   status: PollStatus;
   results_visibility: ResultsVisibility;
+  access: PollAccess;
   end_time: Date;
   published_at: Date | null;
   closed_at: Date | null;

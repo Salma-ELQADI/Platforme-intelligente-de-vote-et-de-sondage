@@ -75,3 +75,18 @@ export async function listUsers(opts: { limit: number; offset: number; search?: 
   );
   return { users: rows.map(toPublicUser), total: rows[0] ? Number(rows[0].total) : 0 };
 }
+
+/**
+ * Resolves a list of usernames and/or emails to active users.
+ * Emails are matched case-insensitively (they are stored in lower case);
+ * usernames are matched exactly. Returns, for each identifier, the user found (if any).
+ */
+export async function findActiveUsersByIdentifiers(identifiers: string[], db: Queryable = pool) {
+  const { rows } = await db.query<{ identifier: string; id: string | null; username: string | null }>(
+    `SELECT i.identifier, u.id, u.username
+       FROM unnest($1::text[]) AS i(identifier)
+       LEFT JOIN users u ON u.is_active AND (u.username = i.identifier OR u.email = lower(i.identifier))`,
+    [identifiers],
+  );
+  return rows;
+}

@@ -6,6 +6,7 @@ import type {
   PollFormValues,
   PollResults,
   PollStatus,
+  PollVoter,
   User,
   VoteHistoryItem,
 } from "@/types";
@@ -75,6 +76,7 @@ export const api = {
     request<{ user: User }>("/users/me", { method: "PATCH", body }),
   listUsers: (params: { page?: number; search?: string }) =>
     request<{ users: User[]; pagination: Pagination }>(`/users${qs(params)}`),
+  lookupUser: (identifier: string) => request<{ user: PollVoter }>(`/users/lookup${qs({ identifier })}`),
   adminUpdateUser: (id: string, body: { role?: User["role"]; isActive?: boolean }) =>
     request<{ user: User }>(`/users/${id}`, { method: "PATCH", body }),
 

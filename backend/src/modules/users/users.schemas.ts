@@ -26,3 +26,7 @@ export const adminUpdateUserSchema = z
     isActive: z.boolean().optional(),
   })
   .refine((d) => d.role !== undefined || d.isActive !== undefined, { message: 'Aucune modification fournie' });
+
+export const lookupUserQuerySchema = z.object({
+  identifier: z.string({ error: "Nom d'utilisateur ou email requis" }).trim().min(1, "Nom d'utilisateur ou email requis").max(255),
+});

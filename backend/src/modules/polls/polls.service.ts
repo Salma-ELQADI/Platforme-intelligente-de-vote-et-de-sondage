@@ -1,9 +1,11 @@
 import type { PoolClient } from 'pg';
 import { withTransaction } from '../../db/pool';
 import { logger } from '../../config/logger';
-import { AppError, forbidden, isPgError, notFound, PG_ERRORS } from '../../utils/errors';
+import type { Queryable } from '../../db/pool';
+import { AppError, badRequest, forbidden, isPgError, notFound, PG_ERRORS } from '../../utils/errors';
 import { broadcastPollClosed, sendNotification } from '../../socket/realtime';
 import { insertClosureNotifications, toNotification } from '../notifications/notifications.repository';
+import { findActiveUsersByIdentifiers } from '../users/users.repository';
 import type { PublicUser } from '../users/users.types';
 import * as repo from './polls.repository';
 import { isValidEndTime, type CreatePollInput, type ListPollsQuery, type UpdatePollInput } from './polls.schemas';
@@ -21,16 +23,50 @@ function mapOptionViolation(err: unknown): never {
   throw err;
 }
 
+/** Loads a poll and, for its creator or an admin, the invited voters list of a private poll. */
+async function loadPoll(pollId: string, viewer: PublicUser, db?: Queryable): Promise<Poll | null> {
+  const poll = await repo.findPollById(pollId, viewer.id, db);
+  if (poll && poll.access === 'PRIVATE' && (isOwner(viewer, poll) || isAdmin(viewer))) {
+    poll.voters = await repo.listVoters(pollId, db);
+  }
+  return poll;
+}
+
 /**
- * Loads a poll the user is allowed to see. Drafts are private: for anyone
- * other than the owner or an admin they are reported as "not found" so that
- * their existence is not even revealed.
+ * Loads a poll the user is allowed to see. Drafts are visible to their owner
+ * only, and private polls to their owner and invited voters only (admins see
+ * everything). Otherwise the poll is reported as "not found" so that its
+ * existence is not even revealed.
  */
 export async function getPollForViewer(viewer: PublicUser, pollId: string): Promise<Poll> {
-  const poll = await repo.findPollById(pollId, viewer.id);
+  const poll = await loadPoll(pollId, viewer);
   if (!poll) throw notFound('Sondage introuvable');
-  if (poll.status === 'DRAFT' && !isOwner(viewer, poll) && !isAdmin(viewer)) throw notFound('Sondage introuvable');
+  const privileged = isOwner(viewer, poll) || isAdmin(viewer);
+  if (poll.status === 'DRAFT' && !privileged) throw notFound('Sondage introuvable');
+  if (poll.access === 'PRIVATE' && !privileged && !(await repo.isInvitedVoter(pollId, viewer.id))) {
+    throw notFound('Sondage introuvable');
+  }
   return poll;
+}
+
+/**
+ * Turns usernames/emails into user ids. Unknown identifiers and the creator
+ * themselves are rejected with a message naming the faulty entries.
+ */
+async function resolveVoters(tx: PoolClient, owner: PublicUser, identifiers: string[]): Promise<string[]> {
+  if (identifiers.length === 0) return [];
+  const matches = await findActiveUsersByIdentifiers(identifiers, tx);
+  const unknown = matches.filter((m) => !m.id).map((m) => m.identifier);
+  if (unknown.length) {
+    throw badRequest(`Utilisateur introuvable : ${unknown.join(', ')}`, [
+      { field: 'voters', message: `Utilisateur introuvable : ${unknown.join(', ')}` },
+    ]);
+  }
+  if (matches.some((m) => m.id === owner.id)) {
+    const message = 'Vous ne pouvez pas vous inviter à votre propre sondage : le créateur ne vote pas';
+    throw badRequest(message, [{ field: 'voters', message }]);
+  }
+  return [...new Set(matches.map((m) => m.id!))];
 }
 
 export async function createPoll(user: PublicUser, input: CreatePollInput): Promise<Poll> {
@@ -42,12 +78,14 @@ export async function createPoll(user: PublicUser, input: CreatePollInput): Prom
       createdBy: user.id,
       creationMode: input.creationMode,
       resultsVisibility: input.resultsVisibility,
+      access: input.access,
       endTime: input.endTime,
     });
     await repo.insertOptions(tx, pollId, input.options);
+    if (input.access === 'PRIVATE') await repo.replaceVoters(tx, pollId, await resolveVoters(tx, user, input.voters));
     return pollId;
   }).catch(mapOptionViolation);
-  return (await repo.findPollById(id, user.id))!;
+  return (await loadPoll(id, user))!;
 }
 
 /** Locks the poll and checks ownership; shared by update/publish/delete. */
@@ -67,8 +105,12 @@ export async function updatePoll(user: PublicUser, pollId: string, input: Update
     }
     await repo.updatePollFields(tx, pollId, input);
     if (input.options) await repo.replaceOptions(tx, pollId, input.options);
+    // A public poll has no invited voters list; a private one keeps it unless a new one is sent.
+    const access = input.access ?? poll.access;
+    if (access === 'PUBLIC') await repo.replaceVoters(tx, pollId, []);
+    else if (input.voters) await repo.replaceVoters(tx, pollId, await resolveVoters(tx, user, input.voters));
   }).catch(mapOptionViolation);
-  return (await repo.findPollById(pollId, user.id))!;
+  return (await loadPoll(pollId, user))!;
 }
 
 /** DRAFT → ACTIVE */
@@ -83,9 +125,12 @@ export async function publishPoll(user: PublicUser, pollId: string): Promise<Pol
     if ((await repo.countOptions(tx, pollId)) < 2) {
       throw new AppError(400, 'NOT_ENOUGH_OPTIONS', 'Un sondage doit contenir au moins 2 propositions');
     }
+    if (poll.access === 'PRIVATE' && (await repo.countVoters(tx, pollId)) === 0) {
+      throw new AppError(400, 'NO_VOTERS', 'Un sondage privé doit avoir au moins un votant invité');
+    }
     await repo.setPollActive(tx, pollId);
   });
-  return (await repo.findPollById(pollId, user.id))!;
+  return (await loadPoll(pollId, user))!;
 }
 
 /** ACTIVE → CLOSED before the end time (owner or admin). */
@@ -96,7 +141,7 @@ export async function closePollManually(user: PublicUser, pollId: string): Promi
     return closePollsInTransaction(tx, `WHERE id = $1 AND status = 'ACTIVE'`, [pollId]);
   });
   await afterPollsClosed(closed);
-  return (await repo.findPollById(pollId, user.id))!;
+  return (await loadPoll(pollId, user))!;
 }
 
 /**

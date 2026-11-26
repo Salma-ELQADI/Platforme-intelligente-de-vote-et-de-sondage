@@ -12,6 +12,7 @@ function Kicker({ poll }: { poll: Poll }) {
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
       <StatusBadge status={poll.status} isOpen={poll.isOpen} />
       <Badge>{poll.creationMode === "AI" ? "Rédaction assistée par IA" : "Rédaction manuelle"}</Badge>
+      {poll.access === "PRIVATE" && <Badge>Privé</Badge>}
       {poll.myVoteOptionId && <Badge className="text-ink">✓ Vous avez voté</Badge>}
     </div>
   );

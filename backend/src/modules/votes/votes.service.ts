@@ -2,7 +2,7 @@ import { withTransaction, query } from '../../db/pool';
 import { AppError, isPgError, notFound, PG_ERRORS } from '../../utils/errors';
 import { broadcastResults } from '../../socket/realtime';
 import { buildResults } from '../polls/polls.service';
-import { lockPoll } from '../polls/polls.repository';
+import { isInvitedVoter, lockPoll } from '../polls/polls.repository';
 import type { PollResults } from '../polls/polls.types';
 import type { PublicUser } from '../users/users.types';
 
@@ -18,8 +18,10 @@ export interface CastVoteResult {
  *  2. the poll exists (and is not a draft) → SELECT ... FOR SHARE
  *  3. the poll is ACTIVE                   → status check
  *  4. the end time has not passed          → compared with the DATABASE clock (now())
- *  5. the option belongs to this poll      → explicit check + composite foreign key
- *  6. the user has not voted yet           → UNIQUE (poll_id, user_id)
+ *  5. the user is not the poll's creator   → ownership check
+ *  6. a PRIVATE poll: the user is invited  → poll_voters lookup
+ *  7. the option belongs to this poll      → explicit check + composite foreign key
+ *  8. the user has not voted yet           → UNIQUE (poll_id, user_id)
  *
  * FOR SHARE locks the poll row until COMMIT: a concurrent closure (UPDATE)
  * has to wait, so a vote can never be accepted "in the middle" of a closure.
@@ -30,8 +32,19 @@ export async function castVote(user: PublicUser, pollId: string, optionId: strin
   const { vote, poll } = await withTransaction(async (tx) => {
     const poll = await lockPoll(tx, pollId, 'SHARE');
     if (!poll || poll.status === 'DRAFT') throw notFound('Sondage introuvable');
+    const invited = poll.access === 'PRIVATE' && (await isInvitedVoter(pollId, user.id, tx));
+    // Same answer as GET /polls/:id: a private poll does not exist for people who are not invited.
+    if (poll.access === 'PRIVATE' && !invited && poll.created_by !== user.id && user.role !== 'admin') {
+      throw notFound('Sondage introuvable');
+    }
     if (poll.status === 'CLOSED' || poll.expired) {
       throw new AppError(403, 'POLL_CLOSED', 'Ce sondage est clôturé, il n’est plus possible de voter');
+    }
+    if (poll.created_by === user.id) {
+      throw new AppError(403, 'OWNER_CANNOT_VOTE', 'Vous ne pouvez pas voter à votre propre sondage');
+    }
+    if (poll.access === 'PRIVATE' && !invited) {
+      throw new AppError(403, 'NOT_INVITED', "Ce sondage est privé : seuls les votants invités peuvent voter");
     }
 
     const option = await tx.query('SELECT 1 FROM poll_options WHERE id = $1 AND poll_id = $2', [optionId, pollId]);

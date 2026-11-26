@@ -34,6 +34,14 @@ const endTime = z.coerce
     message: "La date de clôture doit être comprise entre 1 minute et 1 an à partir de maintenant",
   });
 
+const access = z.enum(['PUBLIC', 'PRIVATE']);
+
+/** Invited voters of a private poll, given by username or email (resolved by the service). */
+const voters = z
+  .array(z.string().trim().min(1, 'Un votant ne peut pas être vide').max(255), { error: 'La liste des votants est invalide' })
+  .max(500, 'Un sondage privé ne peut pas avoir plus de 500 votants')
+  .transform((list) => [...new Set(list)]);
+
 export const createPollSchema = z.object({
   question,
   description,
@@ -41,6 +49,8 @@ export const createPollSchema = z.object({
   endTime,
   resultsVisibility: z.enum(['LIVE', 'AFTER_CLOSE']).default('LIVE'),
   creationMode: z.enum(['MANUAL', 'AI']).default('MANUAL'),
+  access: access.default('PUBLIC'),
+  voters: voters.default([]),
 });
 
 export const updatePollSchema = z
@@ -50,6 +60,8 @@ export const updatePollSchema = z
     options: options.optional(),
     endTime: endTime.optional(),
     resultsVisibility: z.enum(['LIVE', 'AFTER_CLOSE']).optional(),
+    access: access.optional(),
+    voters: voters.optional(),
   })
   .refine((d) => Object.values(d).some((v) => v !== undefined), { message: 'Aucune modification fournie' });
 

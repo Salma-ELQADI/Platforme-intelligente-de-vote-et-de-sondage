@@ -86,6 +86,13 @@ export const openApiDocument = {
           options: { type: 'array', items: ref('PollOption') },
           totalVotes: { type: 'integer' },
           myVoteOptionId: { type: ['string', 'null'], format: 'uuid' },
+          access: { enum: ['PUBLIC', 'PRIVATE'] },
+          canVote: { type: 'boolean', description: 'false for the creator, and for non-invited users of a PRIVATE poll' },
+          voters: {
+            type: ['array', 'null'],
+            description: 'Invited voters of a PRIVATE poll (creator and admins only)',
+            items: { type: 'object', properties: { id: { type: 'string' }, username: { type: 'string' } } },
+          },
         },
       },
       PollInput: {
@@ -98,6 +105,13 @@ export const openApiDocument = {
           endTime: { type: 'string', format: 'date-time' },
           resultsVisibility: { enum: ['LIVE', 'AFTER_CLOSE'], default: 'LIVE' },
           creationMode: { enum: ['MANUAL', 'AI'], default: 'MANUAL' },
+          access: { enum: ['PUBLIC', 'PRIVATE'], default: 'PUBLIC' },
+          voters: {
+            type: 'array',
+            maxItems: 500,
+            items: { type: 'string' },
+            description: 'PRIVATE polls: usernames or emails of the invited voters (the creator cannot be one of them)',
+          },
         },
       },
       Results: {
@@ -191,6 +205,19 @@ export const openApiDocument = {
         responses: { 200: ok('OK', { users: { type: 'array', items: ref('User') }, pagination: { type: 'object' } }), 401: E[401], 403: E[403] },
       },
     },
+    '/users/lookup': {
+      get: {
+        tags: ['Users'],
+        security: secured,
+        summary: 'Find an active user by exact username or email (to invite them to a private poll)',
+        parameters: [{ name: 'identifier', in: 'query', required: true, schema: { type: 'string' } }],
+        responses: {
+          200: ok('OK', { user: { type: 'object', properties: { id: { type: 'string' }, username: { type: 'string' } } } }),
+          401: E[401],
+          404: E[404],
+        },
+      },
+    },
     '/users/{id}': {
       get: { tags: ['Users (admin)'], security: secured, summary: 'Get a user', parameters: idParam, responses: { 200: ok('OK', { user: ref('User') }), 403: E[403], 404: E[404] } },
       patch: {
@@ -206,7 +233,7 @@ export const openApiDocument = {
       get: {
         tags: ['Polls'],
         security: secured,
-        summary: 'List published polls',
+        summary: 'List published polls (public ones, plus private ones the user created or is invited to)',
         parameters: [
           { name: 'status', in: 'query', schema: { enum: ['ACTIVE', 'CLOSED'], default: 'ACTIVE' } },
           { name: 'search', in: 'query', schema: { type: 'string' } },
@@ -256,7 +283,7 @@ export const openApiDocument = {
         security: secured,
         summary: 'DRAFT → ACTIVE (owner only)',
         parameters: idParam,
-        responses: { 200: ok('OK', { poll: ref('Poll') }), 400: err('INVALID_END_TIME / NOT_ENOUGH_OPTIONS'), 403: E[403], 404: E[404], 409: err('POLL_ALREADY_PUBLISHED') },
+        responses: { 200: ok('OK', { poll: ref('Poll') }), 400: err('INVALID_END_TIME / NOT_ENOUGH_OPTIONS / NO_VOTERS'), 403: E[403], 404: E[404], 409: err('POLL_ALREADY_PUBLISHED') },
       },
     },
     '/polls/{id}/close': {
@@ -281,14 +308,14 @@ export const openApiDocument = {
       post: {
         tags: ['Votes'],
         security: secured,
-        summary: 'Vote (once per poll)',
+        summary: 'Vote (once per poll; never on your own poll; PRIVATE polls: invited voters only)',
         parameters: idParam,
         requestBody: body({ type: 'object', required: ['optionId'], properties: { optionId: { type: 'string', format: 'uuid' } } }),
         responses: {
           201: ok('Vote recorded', { vote: { type: 'object' }, results: ref('Results') }),
           400: err('VALIDATION_ERROR / INVALID_OPTION'),
           401: E[401],
-          403: err('POLL_CLOSED'),
+          403: err('POLL_CLOSED / OWNER_CANNOT_VOTE / NOT_INVITED'),
           404: E[404],
           409: err('ALREADY_VOTED'),
         },

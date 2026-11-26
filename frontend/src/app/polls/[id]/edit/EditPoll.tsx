@@ -29,6 +29,8 @@ export function EditPoll({ id }: { id: string }) {
         options: poll.options.map((o) => o.text),
         endTime: poll.endTime,
         resultsVisibility: poll.resultsVisibility,
+        access: poll.access,
+        voters: poll.voters?.map((v) => v.username) ?? [],
       },
     [poll],
   );

@@ -7,7 +7,7 @@ export const app = createApp();
 let counter = 0;
 
 export async function resetDb() {
-  await query('TRUNCATE notifications, votes, poll_options, polls, users RESTART IDENTITY CASCADE');
+  await query('TRUNCATE notifications, votes, poll_voters, poll_options, polls, users RESTART IDENTITY CASCADE');
 }
 
 export interface TestUser {
