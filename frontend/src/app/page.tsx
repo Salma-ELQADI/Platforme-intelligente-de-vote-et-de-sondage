@@ -89,7 +89,7 @@ function LiveFrontPage() {
                 ))}
               </ol>
               <ButtonLink href={`/polls/${lead.id}`} className="mt-6">
-                {lead.myVoteOptionId ? "Suivre le dépouillement" : "Voter"}
+                {lead.canVote && !lead.myVoteOptionId ? "Voter" : "Suivre le dépouillement"}
               </ButtonLink>
             </div>
             <div>{leadResults && <ResultsBars results={leadResults} myVoteOptionId={lead.myVoteOptionId} compact />}</div>
