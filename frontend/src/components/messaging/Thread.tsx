@@ -29,6 +29,12 @@ function useReceipt(conversation: Conversation, messages: Message[], meId: strin
   return { id: mine.id, label };
 }
 
+/** A new "run" starts when the author changes, after a day break, or after 5 minutes. */
+const breaksRun = (a: Message, b: Message) =>
+  a.sender?.id !== b.sender?.id ||
+  new Date(a.createdAt).toDateString() !== new Date(b.createdAt).toDateString() ||
+  new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() > 300_000;
+
 function Header({ conversation, meId, onToggleInfo, infoOpen }: { conversation: Conversation; meId: string; onToggleInfo: () => void; infoOpen: boolean }) {
   const { t } = useI18n();
   const title = conversationTitle(conversation, meId, t("messages.deletedUser"));
@@ -36,21 +42,32 @@ function Header({ conversation, meId, onToggleInfo, infoOpen }: { conversation: 
   const online = conversation.members.filter((m) => m.online && m.id !== meId).length;
 
   return (
-    <header className="flex items-center gap-3 border-b border-ink px-3 py-3 sm:px-4">
-      <Link href="/messages" className="grid h-9 w-9 shrink-0 place-items-center text-ink hover:text-umber md:hidden" aria-label={t("messages.backToList")}>
+    <header className="flex items-center gap-3 border-b border-ink bg-paper/40 px-3 py-3.5 sm:gap-4 sm:px-5 sm:py-4">
+      <Link href="/messages" className="grid h-10 w-10 shrink-0 place-items-center text-ink hover:text-umber md:hidden" aria-label={t("messages.backToList")}>
         <svg className="h-5 w-5 rtl:-scale-x-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
           <path strokeLinejoin="round" d="M20 12H6m6-7-7 7 7 7" />
         </svg>
       </Link>
-      <Avatar name={title} group={conversation.type === "GROUP"} online={other?.online} />
+      <span className="sm:hidden"><Avatar name={title} group={conversation.type === "GROUP"} online={other?.online} /></span>
+      <span className="hidden sm:block"><Avatar name={title} group={conversation.type === "GROUP"} online={other?.online} size="lg" /></span>
       <div className="min-w-0 flex-1">
-        <h2 dir="auto" className="truncate text-start font-serif text-xl font-bold leading-tight text-ink">{title}</h2>
-        <p className="text-xs text-umber">
-          {conversation.type === "DIRECT"
-            ? other?.online
-              ? <span className="text-accent">{t("messages.online")}</span>
-              : t("messages.offline")
-            : t("messages.membersOnline", { count: conversation.members.length, online })}
+        <p className="kicker text-umber">{conversation.type === "GROUP" ? t("messages.groupKicker") : t("messages.directKicker")}</p>
+        <h2 dir="auto" className="mt-0.5 line-clamp-2 break-words text-start font-serif text-xl font-bold leading-tight text-ink sm:text-2xl">{title}</h2>
+        <p className="mt-1 flex min-w-0 items-center gap-2 text-xs text-umber">
+          {conversation.type === "DIRECT" ? (
+            <>
+              <span className={cn("h-2 w-2 shrink-0 rounded-full", other?.online ? "bg-copper" : "bg-muted")} aria-hidden="true" />
+              {other?.online ? <span className="font-medium text-accent">{t("messages.online")}</span> : t("messages.offline")}
+            </>
+          ) : (
+            <>
+              <span className="shrink-0 font-mono">{t("messages.membersOnline", { count: conversation.members.length, online })}</span>
+              <span className="hidden min-w-0 truncate sm:inline">
+                <span className="mx-1 text-muted" aria-hidden="true">·</span>
+                <bdi>{conversation.members.filter((m) => m.id !== meId).map((m) => m.username).join(", ")}</bdi>
+              </span>
+            </>
+          )}
         </p>
       </div>
       {conversation.type === "GROUP" && (
@@ -91,6 +108,9 @@ export function Thread({ conversationId }: { conversationId: string }) {
   const scroller = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const restoreFrom = useRef<number | null>(null);
+  // Newest seq present when the thread first loaded: only later messages animate in.
+  const [loadedUpTo, setLoadedUpTo] = useState<number | null>(null);
+  if (thread.status === "ready" && loadedUpTo === null) setLoadedUpTo(thread.messages.at(-1)?.seq ?? 0);
 
   useEffect(() => {
     setActiveConversation(conversationId);
@@ -150,7 +170,7 @@ export function Thread({ conversationId }: { conversationId: string }) {
 
         <div
           ref={scroller}
-          className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5"
+          className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6"
           onScroll={(e) => {
             const el = e.currentTarget;
             stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
@@ -178,12 +198,13 @@ export function Thread({ conversationId }: { conversationId: string }) {
                 </div>
               )}
 
-              <ol className="space-y-0.5">
+              <ol>
                 {thread.messages.map((m, i) => {
                   const prev = thread.messages[i - 1];
+                  const next = thread.messages[i + 1];
                   const newDay = !prev || !fmt.sameDay(prev.createdAt, m.createdAt);
-                  // A new "run" starts when the author changes, after a day break, or after 5 minutes.
-                  const newRun = newDay || prev.sender?.id !== m.sender?.id || new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() > 300_000;
+                  const newRun = !prev || breaksRun(prev, m);
+                  const lastOfRun = !next || breaksRun(m, next);
                   const mine = m.sender?.id === user.id;
                   return (
                     <Fragment key={m.id}>
@@ -198,6 +219,9 @@ export function Thread({ conversationId }: { conversationId: string }) {
                         message={m}
                         mine={mine}
                         showSender={isGroup && newRun}
+                        firstOfRun={newRun}
+                        lastOfRun={lastOfRun}
+                        fresh={loadedUpTo !== null && m.seq > loadedUpTo}
                         receipt={m.id === receipt.id ? receipt.label : undefined}
                       />
                     </Fragment>
@@ -212,7 +236,12 @@ export function Thread({ conversationId }: { conversationId: string }) {
         </div>
 
         <TypingIndicator names={typingNames} />
-        <Composer onSend={(body) => { stickToBottom.current = true; thread.send(body); }} onTyping={thread.notifyTyping} disabled={thread.status !== "ready"} />
+        <Composer
+          onSend={(body) => { stickToBottom.current = true; thread.send(body); }}
+          onTyping={thread.notifyTyping}
+          disabled={thread.status !== "ready"}
+          sending={thread.pending.some((p) => p.state !== "failed")}
+        />
       </section>
 
       {infoOpen && (

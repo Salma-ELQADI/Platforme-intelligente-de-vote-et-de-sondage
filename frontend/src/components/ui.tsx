@@ -113,8 +113,14 @@ export function Card({ className, children }: { className?: string; children: Re
 export function SectionTitle({ children, aside, number }: { children: ReactNode; aside?: ReactNode; number?: string }) {
   return (
     <div className="mb-5 flex items-center gap-3">
-      {number && <span className="font-mono text-xs text-umber">{number}</span>}
-      <h2 className="kicker shrink-0 text-ink">{children}</h2>
+      <h2 className="kicker flex shrink-0 items-center gap-2 text-ink">
+        {number && (
+          <span className="font-mono text-[11px] font-normal tracking-normal text-umber" dir="ltr">
+            {number} <span aria-hidden="true">—</span>
+          </span>
+        )}
+        {children}
+      </h2>
       <span className="h-px flex-1 bg-ink/70" aria-hidden="true" />
       {aside}
     </div>
@@ -155,11 +161,21 @@ const statusStyle: Record<PollStatus, string> = {
   CLOSED: "border border-ink text-ink",
 };
 
-export function StatusBadge({ status, isOpen }: { status: PollStatus; isOpen?: boolean }) {
+export function StatusBadge({ status, isOpen, size = "md" }: { status: PollStatus; isOpen?: boolean; size?: "md" | "lg" }) {
   const { t } = useI18n();
   // An ACTIVE poll whose end time just passed (closer job not run yet) is displayed as closed.
   const effective = status === "ACTIVE" && isOpen === false ? "CLOSED" : status;
-  return <span className={cn("kicker inline-flex h-6 items-center px-2", statusStyle[effective])}>{t(`status.${effective}`)}</span>;
+  return (
+    <span className={cn("kicker inline-flex items-center gap-1.5", size === "lg" ? "h-7 px-2.5" : "h-6 px-2", statusStyle[effective])}>
+      {effective === "ACTIVE" && <span className="animate-blink h-1.5 w-1.5 rounded-full bg-copper" aria-hidden="true" />}
+      {t(`status.${effective}`)}
+    </span>
+  );
+}
+
+/** Grey bars standing in for text while it loads. */
+export function Skeleton({ className }: { className?: string }) {
+  return <span className={cn("skeleton block", className)} aria-hidden="true" />;
 }
 
 /** Category / metadata label. */

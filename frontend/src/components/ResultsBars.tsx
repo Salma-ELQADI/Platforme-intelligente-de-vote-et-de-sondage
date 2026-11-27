@@ -140,33 +140,53 @@ export function ResultsBars({
 
       <ol className="border-t border-ink">
         {results.options.map((o, i) => {
-          const leading = isLeading(o.optionId, o.votes);
+          const leading = isLeading(o.optionId, o.votes) && results.totalVotes > 0;
           const mine = myChoices?.length ? myChoices.includes(o.optionId) : o.optionId === myVoteOptionId;
           return (
-            <li key={o.optionId} className="relative border-b border-rule py-3">
+            <li key={o.optionId} className={cn("relative border-b border-rule", compact ? "py-3" : "py-4")}>
               {/* Re-mounted when the count changes → replays the ink wash */}
               <span key={o.votes} className="animate-ink-flash pointer-events-none absolute inset-0" aria-hidden="true" />
-              <div className="relative flex items-baseline gap-3">
-                <span className="font-mono text-xs text-umber">{String(i + 1).padStart(2, "0")}</span>
-                <span className={cn("min-w-0 flex-1 font-serif text-ink", compact ? "text-base" : "text-lg", leading && "font-bold")}>
-                  <bdi>{o.text}</bdi>
-                  {mine && <span className="kicker ms-2 align-middle text-umber">{t("results.yourChoice")}</span>}
-                  {final && leading && <span className="kicker ms-2 align-middle text-ink">{t("results.leading")}</span>}
+              <div className="relative flex items-end gap-3">
+                <span className="pb-1 font-mono text-xs text-umber">{String(i + 1).padStart(2, "0")}</span>
+                <div className="min-w-0 flex-1">
+                  {(leading || mine) && (
+                    <div className="mb-1 flex flex-wrap items-center gap-2">
+                      {leading && (
+                        <span className="kicker inline-flex h-5 items-center bg-ink px-1.5 text-[10px] text-paper">
+                          {final && method !== "RANKED" ? t("results.winnerTag") : t("results.leading")}
+                        </span>
+                      )}
+                      {mine && (
+                        <span className="kicker inline-flex items-center gap-1 text-[10px] text-accent">
+                          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>
+                          {t("results.yourChoice")}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <span className={cn("bidi-auto block font-serif leading-snug text-ink", compact ? "text-base" : "text-lg", leading && "font-bold")}>
+                    <bdi>{o.text}</bdi>
+                  </span>
+                </div>
+                <span
+                  className={cn("font-mono leading-none tabular-nums", compact ? "text-lg" : "text-3xl", leading ? "text-ink" : "text-umber")}
+                  dir="ltr"
+                >
+                  {fmt.percent(o.percentage)}
                 </span>
-                <span className={cn("font-mono tabular-nums text-ink", compact ? "text-base" : "text-xl")} dir="ltr">{fmt.percent(o.percentage)}</span>
               </div>
-              <div className="relative mt-2 flex items-center gap-3 ps-7">
+              <div className="relative mt-2.5 flex items-center gap-3 ps-7">
                 <div
-                  className="h-1.5 flex-1 bg-rule/70"
+                  className={cn("flex-1 bg-rule/60", compact ? "h-1.5" : "h-2.5")}
                   role="progressbar"
                   aria-valuenow={o.percentage}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-label={`${o.text} : ${fmt.percent(o.percentage)}`}
                 >
-                  <div className={cn("h-full transition-[width] duration-700 ease-[cubic-bezier(.2,.8,.2,1)]", leading ? "bg-ink" : "bg-umber")} style={{ width: `${o.percentage}%` }} />
+                  <div className={cn("h-full transition-[width] duration-700 ease-[cubic-bezier(.2,.8,.2,1)]", leading ? "bg-ink" : "bg-copper")} style={{ width: `${o.percentage}%` }} />
                 </div>
-                <span className="w-16 text-end font-mono text-[11px] text-umber">{t("results.ballots", { count: o.votes })}</span>
+                <span className="min-w-16 text-end font-mono text-[11px] text-umber">{t("results.ballots", { count: o.votes })}</span>
               </div>
             </li>
           );

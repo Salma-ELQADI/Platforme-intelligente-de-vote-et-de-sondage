@@ -20,8 +20,9 @@
   --color-umber: var(--muted);              /* secondary text, hover ink */
   --color-muted: var(--ornament);           /* ornaments only (not for text) */
   --color-rule: var(--border);              /* borders, separators, tracks */
-  --color-accent: var(--accent);            /* unread marks, presence, live dots */
+  --color-accent: var(--accent);            /* accent text and small labelled fills (AA safe) */
   --color-on-accent: var(--accent-foreground);
+  --color-copper: var(--copper);            /* large non-text marks: bars, rules, dots, selection edges */
   --color-bubble: var(--bubble-out);        /* sent messages */
   --color-on-bubble: var(--bubble-out-foreground);
 }
@@ -36,9 +37,10 @@
   --muted: #70513b;           /* 5.3:1 on background */
   --ornament: #a9957e;
   --border: #cbbba4;
-  --accent: #8a5a32;          /* walnut copper, 5.1:1 on surface */
+  --accent: #8a5a32;          /* walnut copper for text, 5.1:1 on surface */
   --accent-foreground: #f5f0e6;
-  --bubble-out: #38291f;      /* sent messages are set in solid ink */
+  --copper: #a47750;          /* brand accent: 3.4:1, so marks only, never small text */
+  --bubble-out: #70513b;      /* sent messages: muted walnut, 7:1 with cream */
   --bubble-out-foreground: #f5f0e6;
   /* Printed-paper grain: brown speckles. */
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .22 0 0 0 0 .16 0 0 0 0 .12 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -59,8 +61,9 @@
   --border: #514338;
   --accent: #c49a70;          /* 6.6:1 on background */
   --accent-foreground: #211b17;
-  --bubble-out: #c49a70;      /* sent messages: copper sheet, espresso text */
-  --bubble-out-foreground: #211b17;
+  --copper: #c49a70;
+  --bubble-out: #6b5140;      /* sent messages: muted walnut, 6.5:1 with cream */
+  --bubble-out-foreground: #f5f0e6;
   /* Cream fibres instead of brown speckles, much fainter. */
   --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .96 0 0 0 0 .94 0 0 0 0 .9 0 0 0 .035 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
@@ -77,8 +80,9 @@
     --border: #514338;
     --accent: #c49a70;
     --accent-foreground: #211b17;
-    --bubble-out: #c49a70;
-    --bubble-out-foreground: #211b17;
+    --copper: #c49a70;
+    --bubble-out: #6b5140;
+    --bubble-out-foreground: #f5f0e6;
     --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .96 0 0 0 0 .94 0 0 0 0 .9 0 0 0 .035 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 }
@@ -211,7 +215,46 @@ body,
   30% { opacity: 1; transform: translateY(-2px); }
 }
 
+@keyframes message-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes menu-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+@keyframes count-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+
 .animate-page-in { animation: page-in .3s ease-out both; }
+.animate-message-in { animation: message-in .22s ease-out both; }
+.animate-menu-in { animation: menu-in .16s ease-out both; }
+.animate-count-pop { animation: count-pop .3s ease-out; }
+
+/* Loading placeholder: a block of type being set. */
+.skeleton {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--border) 55%, transparent) 25%,
+    color-mix(in srgb, var(--border) 90%, transparent) 50%,
+    color-mix(in srgb, var(--border) 55%, transparent) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* Cross-fade of colours, only while the reader switches edition (PreferencesContext). */
+.theme-switching,
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: background-color .3s ease, border-color .3s ease, color .3s ease, fill .3s ease !important;
+}
 .animate-toast-in { animation: toast-in .2s ease-out both; }
 .animate-press { animation: press 1.4s cubic-bezier(.6,0,.3,1) infinite; }
 .animate-blink { animation: blink 1.6s ease-in-out infinite; }

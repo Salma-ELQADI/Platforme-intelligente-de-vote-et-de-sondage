@@ -61,7 +61,12 @@
     "closeMenu": "Close",
     "sections": "Sections",
     "realtimeOn": "Live updates connected",
-    "realtimeOff": "Live updates disconnected"
+    "realtimeOff": "Live updates disconnected",
+    "accountMenu": "Account menu",
+    "groupMain": "Sections",
+    "groupCommunication": "Communication",
+    "groupAccount": "Account",
+    "groupPreferences": "Language & theme"
   },
   "footer": {
     "sections": "Sections",
@@ -315,7 +320,17 @@
     "groupPoll": "Poll of the group {name}",
     "openGroup": "Open the conversation",
     "opensOn": "Opens on {date} at {time}",
-    "scheduledNotice": "This poll is scheduled: voting opens on {date} at {time}. Until then, only you can read it."
+    "scheduledNotice": "This poll is scheduled: voting opens on {date} at {time}. Until then, only you can read it.",
+    "metaAuthor": "Author",
+    "metaPublished": "Published",
+    "metaCreated": "Created",
+    "metaCloses": "Closing",
+    "metaClosed": "Closed",
+    "metaOpens": "Opens",
+    "metaTurnout": "Turnout",
+    "showAll_one": "Show all ({count})",
+    "showAll_other": "Show all ({count})",
+    "showFewer": "Show fewer"
   },
   "ballot": {
     "title": "Ballot paper",
@@ -339,7 +354,12 @@
     "ranked_one": "{count} answer ranked",
     "ranked_other": "{count} answers ranked",
     "reset": "Clear all",
-    "rankedHint": "If your first choice is eliminated during the count, your vote moves to your next one."
+    "rankedHint": "If your first choice is eliminated during the count, your vote moves to your next one.",
+    "receiptKicker": "Ballot recorded",
+    "receiptText": "Your vote has been counted and cannot be changed. Follow the count in the results.",
+    "yourChoice_one": "Your choice",
+    "yourChoice_other": "Your choices",
+    "yourRanking": "Your ranking"
   },
   "results": {
     "finalCount": "Ballots in the final count",
@@ -363,7 +383,8 @@
     "winner_other": "Perfect tie",
     "leadingRunoff": "Leading the provisional count",
     "firstPreferences": "Distribution of first choices",
-    "shareOfVoters": "Share of voters who picked each answer (the total can exceed 100%)."
+    "shareOfVoters": "Share of voters who picked each answer (the total can exceed 100%).",
+    "winnerTag": "Winner"
   },
   "pollForm": {
     "question": "The question",
@@ -631,7 +652,11 @@
     "info": "Details",
     "hideInfo": "Hide details",
     "newGroupPoll": "Start a poll",
-    "sendShortcut": "Enter to send, Shift + Enter for a new line"
+    "sendShortcut": "Enter to send, Shift + Enter for a new line",
+    "newShort": "New",
+    "groupShort": "Group",
+    "groupKicker": "Group conversation",
+    "directKicker": "Private conversation"
   },
   "pollCard": {
     "kicker": "Group poll",

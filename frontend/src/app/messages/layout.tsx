@@ -18,7 +18,8 @@ export default function MessagesLayout({ children }: { children: ReactNode }) {
   if (!ready) return <PageLoader />;
 
   return (
-    <div className="-my-6 grid h-[calc(100dvh-9.5rem)] min-h-[28rem] grid-cols-1 border border-ink bg-cream md:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)]">
+    // Mobile: full-bleed under the compact bar (main's padding cancelled). From md: a framed two-panel sheet.
+    <div className="-mx-4 -my-10 grid h-[calc(100dvh-3.6rem)] min-h-[28rem] grid-cols-1 bg-cream sm:-mx-6 md:mx-0 md:-my-6 md:h-[calc(100dvh-6.5rem)] md:border md:border-ink md:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] lg:h-[calc(100dvh-9rem)]">
       <div className={cn("min-h-0 min-w-0 md:border-e md:border-ink", id ? "hidden md:block" : "block")}>
         <ConversationList activeId={id} />
       </div>

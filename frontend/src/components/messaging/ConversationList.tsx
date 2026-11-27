@@ -7,7 +7,7 @@ import { useMessaging } from "@/contexts/MessagingContext";
 import { useI18n } from "@/contexts/PreferencesContext";
 import { cn } from "@/lib/format";
 import type { Conversation } from "@/types";
-import { Alert, Button, Input, Spinner } from "../ui";
+import { Alert, Button, Input, Skeleton } from "../ui";
 import { PendingInvitations } from "./InvitationCard";
 import { NewConversationDialog } from "./NewConversationDialog";
 import { Avatar, conversationTitle, otherMember } from "./shared";
@@ -37,24 +37,29 @@ function Row({ c, active, meId }: { c: Conversation; active: boolean; meId: stri
         href={`/messages/${c.id}`}
         aria-current={active ? "page" : undefined}
         className={cn(
-          "flex items-center gap-3 border-b border-rule px-4 py-3.5 transition-colors",
-          active ? "bg-paper shadow-[inset_3px_0_0_var(--foreground)] rtl:shadow-[inset_-3px_0_0_var(--foreground)]" : "hover:bg-paper/60",
+          "relative flex items-center gap-3 border-b border-rule px-4 py-3.5 transition-colors",
+          active ? "bg-paper" : "hover:bg-paper/60",
         )}
       >
-        <Avatar name={title} group={c.type === "GROUP"} online={other?.online} />
+        {active && <span className="absolute inset-y-0 start-0 w-[3px] bg-copper" aria-hidden="true" />}
+        <Avatar name={title} group={c.type === "GROUP"} online={other?.online} active={active} />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-3">
-            <span dir="auto" className={cn("min-w-0 truncate font-serif text-[17px] leading-tight text-ink", unread ? "font-bold" : "font-semibold")}>{title}</span>
-            {c.lastMessageAt && <span className={cn("shrink-0 font-mono text-[11px]", unread ? "text-accent" : "text-umber")}>{fmt.listTime(c.lastMessageAt)}</span>}
+            <span dir="auto" className={cn("min-w-0 truncate font-serif text-[17px] leading-tight text-ink", unread || active ? "font-bold" : "font-semibold")}>{title}</span>
+            {c.lastMessageAt && <span className={cn("shrink-0 font-mono text-[11px] tabular-nums", unread ? "font-medium text-accent" : "text-umber")}>{fmt.listTime(c.lastMessageAt)}</span>}
           </div>
-          <div className="mt-0.5 flex items-center justify-between gap-3">
+          <div className="mt-1 flex items-center justify-between gap-3">
             {who.length > 0 ? (
               <span className="min-w-0 truncate text-sm italic text-accent">{t("messages.typing", { name: who[0].username })}</span>
             ) : (
-              <span className={cn("min-w-0 truncate text-sm", unread ? "text-ink" : "text-umber")}>{preview}</span>
+              <span className={cn("min-w-0 truncate text-[13.5px]", unread ? "font-medium text-ink" : "text-umber")}>{preview}</span>
             )}
             {unread && (
-              <span className="shrink-0 bg-accent px-1.5 py-0.5 font-mono text-[10px] leading-none text-on-accent" aria-label={t("messages.unread", { count: c.unreadCount })}>
+              <span
+                key={c.unreadCount}
+                className="animate-count-pop inline-grid h-5 min-w-5 shrink-0 place-items-center rounded-full bg-accent px-1.5 font-mono text-[10px] leading-none text-on-accent"
+                aria-label={t("messages.unread", { count: c.unreadCount })}
+              >
                 {c.unreadCount > 99 ? "99+" : c.unreadCount}
               </span>
             )}
@@ -89,15 +94,24 @@ export function ConversationList({ activeId }: { activeId?: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-ink px-4 pb-4 pt-5">
-        <div className="flex items-center justify-between gap-2">
-          <h1 className="font-serif text-3xl font-black text-ink">{t("messages.title")}</h1>
+      <div className="border-b border-ink px-4 pb-3 pt-4">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="font-serif text-2xl font-black leading-none text-ink">{t("messages.title")}</h1>
+          <div className="flex gap-1.5">
+            <Button size="sm" onClick={() => setDialog("direct")} title={t("messages.newMessage")} className="px-2.5">
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true"><path strokeLinecap="round" d="M12 5v14M5 12h14" /></svg>
+              {t("messages.newShort")}
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setDialog("group")} title={t("messages.newGroup")} className="px-2.5">
+              {t("messages.groupShort")}
+            </Button>
+          </div>
         </div>
-        <div className="mt-3 flex gap-2">
-          <Button size="sm" onClick={() => setDialog("direct")} className="flex-1">{t("messages.newMessage")}</Button>
-          <Button size="sm" variant="secondary" onClick={() => setDialog("group")} className="flex-1">{t("messages.newGroup")}</Button>
-        </div>
-        <div role="search" className="mt-3">
+        <div role="search" className="relative mt-3">
+          <svg className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-umber" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5" />
+            <path strokeLinecap="round" d="m16 16 4 4" />
+          </svg>
           <Input
             type="search"
             value={search}
@@ -105,7 +119,7 @@ export function ConversationList({ activeId }: { activeId?: string }) {
             placeholder={t("messages.searchPlaceholder")}
             aria-label={t("messages.searchPlaceholder")}
             dir="auto"
-            className="h-9 text-sm"
+            className="h-10 ps-9 text-sm"
           />
         </div>
       </div>
@@ -114,7 +128,17 @@ export function ConversationList({ activeId }: { activeId?: string }) {
         <PendingInvitations />
         {error && !conversations && <div className="p-4"><Alert>{errorText(error)}</Alert></div>}
         {!conversations && !error && (
-          <div className="grid place-items-center py-16 text-umber"><Spinner /></div>
+          <ul role="status" aria-label={t("common.loading")}>
+            {[0, 1, 2, 3, 4].map((i) => (
+              <li key={i} className="flex items-center gap-3 border-b border-rule px-4 py-3.5">
+                <Skeleton className="h-11 w-11 rounded-full" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-3.5 w-1/2" />
+                  <Skeleton className="h-3 w-4/5" />
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
         {conversations?.length === 0 && (
           <div className="px-6 py-12 text-center">

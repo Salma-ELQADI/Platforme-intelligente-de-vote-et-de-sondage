@@ -61,7 +61,12 @@
     "closeMenu": "Fermer",
     "sections": "Rubriques",
     "realtimeOn": "Temps réel connecté",
-    "realtimeOff": "Temps réel déconnecté"
+    "realtimeOff": "Temps réel déconnecté",
+    "accountMenu": "Menu du compte",
+    "groupMain": "Rubriques",
+    "groupCommunication": "Communication",
+    "groupAccount": "Compte",
+    "groupPreferences": "Langue et thème"
   },
   "footer": {
     "sections": "Rubriques",
@@ -315,7 +320,17 @@
     "groupPoll": "Sondage du groupe {name}",
     "openGroup": "Ouvrir la discussion",
     "opensOn": "Ouverture le {date} à {time}",
-    "scheduledNotice": "Ce sondage est programmé : le scrutin ouvrira le {date} à {time}. D’ici là, vous seul pouvez le lire."
+    "scheduledNotice": "Ce sondage est programmé : le scrutin ouvrira le {date} à {time}. D’ici là, vous seul pouvez le lire.",
+    "metaAuthor": "Auteur",
+    "metaPublished": "Publié",
+    "metaCreated": "Créé",
+    "metaCloses": "Clôture",
+    "metaClosed": "Clos",
+    "metaOpens": "Ouverture",
+    "metaTurnout": "Participation",
+    "showAll_one": "Tout afficher ({count})",
+    "showAll_other": "Tout afficher ({count})",
+    "showFewer": "Réduire"
   },
   "ballot": {
     "title": "Bulletin de vote",
@@ -339,7 +354,12 @@
     "ranked_one": "{count} réponse classée",
     "ranked_other": "{count} réponses classées",
     "reset": "Tout effacer",
-    "rankedHint": "Si votre premier choix est éliminé au dépouillement, votre voix passe au suivant."
+    "rankedHint": "Si votre premier choix est éliminé au dépouillement, votre voix passe au suivant.",
+    "receiptKicker": "Bulletin enregistré",
+    "receiptText": "Votre vote a été compté et ne peut plus être modifié. Suivez le dépouillement dans les résultats.",
+    "yourChoice_one": "Votre choix",
+    "yourChoice_other": "Vos choix",
+    "yourRanking": "Votre classement"
   },
   "results": {
     "finalCount": "Bulletins au dépouillement final",
@@ -363,7 +383,8 @@
     "winner_other": "Égalité parfaite",
     "leadingRunoff": "En tête au dépouillement provisoire",
     "firstPreferences": "Répartition des premiers choix",
-    "shareOfVoters": "Part des votants ayant retenu chaque réponse (le total peut dépasser 100 %)."
+    "shareOfVoters": "Part des votants ayant retenu chaque réponse (le total peut dépasser 100 %).",
+    "winnerTag": "Gagnant"
   },
   "pollForm": {
     "question": "La question",
@@ -631,7 +652,11 @@
     "hideInfo": "Masquer les informations",
     "newGroupPoll": "Lancer un sondage",
     "sendShortcut": "Entrée pour envoyer, Maj + Entrée pour aller à la ligne",
-    "groupPreview": "{name} : {text}"
+    "groupPreview": "{name} : {text}",
+    "newShort": "Nouveau",
+    "groupShort": "Groupe",
+    "groupKicker": "Conversation de groupe",
+    "directKicker": "Conversation privée"
   },
   "pollCard": {
     "kicker": "Sondage du groupe",

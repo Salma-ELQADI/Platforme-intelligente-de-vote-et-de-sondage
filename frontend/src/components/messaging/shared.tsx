@@ -18,15 +18,23 @@ export function conversationTitle(c: Conversation, meId: string, deletedLabel: s
  * Initials set in the display face, inside a thin ring, like the portrait
  * medallions of a newspaper's columnists. Groups get the khatam ornament.
  */
-export function Avatar({ name, group, online, size = "md" }: { name: string; group?: boolean; online?: boolean; size?: "sm" | "md" | "lg" }) {
+export function Avatar({ name, group, online, size = "md", active }: { name: string; group?: boolean; online?: boolean; size?: "sm" | "md" | "lg"; active?: boolean }) {
   const dims = { sm: "h-8 w-8 text-sm", md: "h-11 w-11 text-lg", lg: "h-14 w-14 text-2xl" }[size];
   // First grapheme: works for Latin and Arabic names alike.
   const initial = [...name.trim()][0]?.toUpperCase() ?? "?";
   return (
-    <span className={cn("relative grid shrink-0 place-items-center border border-ink bg-paper font-serif font-bold text-ink", group ? "" : "rounded-full", dims)} aria-hidden="true">
-      {group ? <Fleuron size={size === "sm" ? 14 : 20} className="text-umber" /> : initial}
+    <span
+      className={cn(
+        "relative grid shrink-0 place-items-center border border-ink font-serif font-bold transition-colors",
+        active ? "bg-ink text-paper" : "bg-paper text-ink",
+        group ? "" : "rounded-full",
+        dims,
+      )}
+      aria-hidden="true"
+    >
+      {group ? <Fleuron size={size === "sm" ? 14 : 20} className={active ? "text-paper" : "text-umber"} /> : initial}
       {online !== undefined && (
-        <span className={cn("absolute -bottom-0.5 end-0 h-3 w-3 rounded-full border-2 border-cream", online ? "bg-accent" : "bg-muted")} />
+        <span className={cn("absolute -bottom-0.5 end-0 h-3 w-3 rounded-full border-2", active ? "border-paper" : "border-cream", online ? "bg-copper" : "bg-muted")} />
       )}
     </span>
   );

@@ -69,7 +69,12 @@
     "closeMenu": "إغلاق",
     "sections": "الأبواب",
     "realtimeOn": "التحديث المباشر متصل",
-    "realtimeOff": "التحديث المباشر منقطع"
+    "realtimeOff": "التحديث المباشر منقطع",
+    "accountMenu": "قائمة الحساب",
+    "groupMain": "الأقسام",
+    "groupCommunication": "التواصل",
+    "groupAccount": "الحساب",
+    "groupPreferences": "اللغة والمظهر"
   },
   "footer": {
     "sections": "الأبواب",
@@ -347,7 +352,21 @@
     "groupPoll": "استطلاع مجموعة {name}",
     "openGroup": "فتح المحادثة",
     "opensOn": "يُفتح في {date} على الساعة {time}",
-    "scheduledNotice": "هذا الاستطلاع مبرمج: يُفتح الاقتراع في {date} على الساعة {time}. وإلى ذلك الحين لا يقرؤه غيرك."
+    "scheduledNotice": "هذا الاستطلاع مبرمج: يُفتح الاقتراع في {date} على الساعة {time}. وإلى ذلك الحين لا يقرؤه غيرك.",
+    "metaAuthor": "الكاتب",
+    "metaPublished": "النشر",
+    "metaCreated": "الإنشاء",
+    "metaCloses": "الإغلاق",
+    "metaClosed": "أُغلق",
+    "metaOpens": "الافتتاح",
+    "metaTurnout": "المشاركة",
+    "showAll_zero": "عرض الكل",
+    "showAll_one": "عرض الكل ({count})",
+    "showAll_two": "عرض الكل ({count})",
+    "showAll_few": "عرض الكل ({count})",
+    "showAll_many": "عرض الكل ({count})",
+    "showAll_other": "عرض الكل ({count})",
+    "showFewer": "عرض أقل"
   },
   "ballot": {
     "title": "ورقة التصويت",
@@ -379,7 +398,16 @@
     "ranked_many": "{count} إجابة مرتّبة",
     "ranked_other": "{count} إجابة مرتّبة",
     "reset": "مسح الكل",
-    "rankedHint": "إذا أُقصي اختيارك الأول أثناء الفرز، ينتقل صوتك إلى اختيارك التالي."
+    "rankedHint": "إذا أُقصي اختيارك الأول أثناء الفرز، ينتقل صوتك إلى اختيارك التالي.",
+    "receiptKicker": "تم تسجيل الورقة",
+    "receiptText": "احتُسب صوتك ولا يمكن تغييره. تابع الفرز في النتائج.",
+    "yourChoice_zero": "اختيارك",
+    "yourChoice_one": "اختيارك",
+    "yourChoice_two": "اختياراك",
+    "yourChoice_few": "اختياراتك",
+    "yourChoice_many": "اختياراتك",
+    "yourChoice_other": "اختياراتك",
+    "yourRanking": "ترتيبك"
   },
   "results": {
     "finalCount": "الأوراق في الفرز النهائي",
@@ -419,7 +447,8 @@
     "winner_other": "تعادل تام",
     "leadingRunoff": "في الصدارة في الفرز المؤقت",
     "firstPreferences": "توزيع الاختيارات الأولى",
-    "shareOfVoters": "نسبة المصوّتين الذين اختاروا كل إجابة (قد يتجاوز المجموع 100٪)."
+    "shareOfVoters": "نسبة المصوّتين الذين اختاروا كل إجابة (قد يتجاوز المجموع 100٪).",
+    "winnerTag": "الفائز"
   },
   "pollForm": {
     "question": "السؤال",
@@ -711,7 +740,11 @@
     "info": "التفاصيل",
     "hideInfo": "إخفاء التفاصيل",
     "newGroupPoll": "أطلق استطلاعًا",
-    "sendShortcut": "Enter للإرسال، وShift + Enter لسطر جديد"
+    "sendShortcut": "Enter للإرسال، وShift + Enter لسطر جديد",
+    "newShort": "جديد",
+    "groupShort": "مجموعة",
+    "groupKicker": "محادثة جماعية",
+    "directKicker": "محادثة خاصة"
   },
   "pollCard": {
     "kicker": "استطلاع المجموعة",
