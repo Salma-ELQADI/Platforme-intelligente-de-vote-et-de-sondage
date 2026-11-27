@@ -13,9 +13,73 @@ const segmentStyle = ["bg-ink", "bg-umber", "hatch bg-paper", "bg-muted", "bg-ru
  * with thin bars. Widths animate when Socket.IO pushes new figures, and the row whose
  * count changed gets a brief ink wash.
  */
-export function ResultsBars({ results, myVoteOptionId, compact = false }: { results: PollResults; myVoteOptionId?: string | null; compact?: boolean }) {
+/**
+ * The instant-runoff count as a table: one row per answer, one column per
+ * round; "—" once an answer is eliminated. Set like a printed tally sheet.
+ */
+function RunoffTable({ results }: { results: PollResults }) {
+  const { t, fmt } = useI18n();
+  const rounds = results.rounds ?? [];
+  if (rounds.length < 2) return null;
+  return (
+    <div>
+      <p className="kicker text-ink">{t("results.runoff")}</p>
+      <p className="mt-1 font-serif text-sm italic text-umber">{t("results.runoffText")}</p>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-start text-sm">
+          <thead>
+            <tr className="border-b border-ink">
+              <th className="py-2 pe-3 text-start font-normal"><span className="sr-only">{t("results.answer")}</span></th>
+              {rounds.map((r) => (
+                <th key={r.round} className="kicker px-2 py-2 text-end text-umber">{t("results.round", { n: fmt.number(r.round) })}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {results.options.map((o) => {
+              const eliminatedAt = rounds.findIndex((r) => r.eliminated.includes(o.optionId));
+              const won = results.winners?.includes(o.optionId);
+              return (
+                <tr key={o.optionId} className="border-b border-rule">
+                  <td className={cn("py-2 pe-3 font-serif", won ? "font-bold text-ink" : eliminatedAt !== -1 ? "text-umber line-through decoration-1" : "text-ink")}>
+                    <bdi>{o.text}</bdi>
+                  </td>
+                  {rounds.map((r, i) => {
+                    const tally = r.tallies.find((x) => x.optionId === o.optionId);
+                    return (
+                      <td key={r.round} className={cn("px-2 py-2 text-end font-mono tabular-nums", tally ? "text-ink" : "text-muted", eliminatedAt === i && "text-umber")}>
+                        {tally ? fmt.number(tally.votes) : "—"}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {rounds.some((r) => r.exhaustedBallots > 0) && (
+        <p className="mt-2 font-mono text-[11px] text-umber">{t("results.exhausted", { count: rounds.at(-1)!.exhaustedBallots })}</p>
+      )}
+    </div>
+  );
+}
+
+export function ResultsBars({
+  results,
+  myVoteOptionId,
+  myChoices,
+  compact = false,
+}: {
+  results: PollResults;
+  myVoteOptionId?: string | null;
+  /** Every answer of my ballot (multiple choice / ranked). */
+  myChoices?: string[];
+  compact?: boolean;
+}) {
   const { t, fmt } = useI18n();
   const final = results.status === "CLOSED";
+  const method = results.method ?? "SINGLE";
 
   const total = (
     <div className="flex items-end gap-4">
@@ -39,12 +103,23 @@ export function ResultsBars({ results, myVoteOptionId, compact = false }: { resu
   }
 
   const max = Math.max(...results.options.map((o) => o.votes), 0);
+  // Ranked polls are decided by the runoff, not by first preferences.
+  const isLeading = (id: string, votes: number) => (method === "RANKED" ? !!results.winners?.includes(id) : max > 0 && votes === max);
+  const winnerTexts = (results.winners ?? []).map((id) => results.options.find((o) => o.optionId === id)?.text).filter(Boolean) as string[];
 
   return (
     <div className="space-y-6">
       {total}
 
-      {!compact && results.totalVotes > 0 && (
+      {method === "RANKED" && winnerTexts.length > 0 && (
+        <div className="border-y border-ink py-3">
+          <p className="kicker text-accent">{final ? t("results.winner", { count: winnerTexts.length }) : t("results.leadingRunoff")}</p>
+          <p className="mt-1 font-serif text-2xl font-bold leading-tight text-ink"><bdi>{winnerTexts.join(" · ")}</bdi></p>
+        </div>
+      )}
+
+      {/* The stacked strip only makes sense when shares add up to 100 %. */}
+      {!compact && results.totalVotes > 0 && method !== "MULTIPLE" && (
         <div>
           <div className="flex h-4 w-full overflow-hidden border border-ink" aria-hidden="true">
             {results.options.map((o, i) =>
@@ -58,14 +133,15 @@ export function ResultsBars({ results, myVoteOptionId, compact = false }: { resu
               ) : null,
             )}
           </div>
-          <p className="mt-2 font-mono text-[11px] text-umber">{t("results.distribution")}</p>
+          <p className="mt-2 font-mono text-[11px] text-umber">{method === "RANKED" ? t("results.firstPreferences") : t("results.distribution")}</p>
         </div>
       )}
+      {method === "MULTIPLE" && results.totalVotes > 0 && <p className="font-mono text-[11px] text-umber">{t("results.shareOfVoters")}</p>}
 
       <ol className="border-t border-ink">
         {results.options.map((o, i) => {
-          const leading = max > 0 && o.votes === max;
-          const mine = o.optionId === myVoteOptionId;
+          const leading = isLeading(o.optionId, o.votes);
+          const mine = myChoices?.length ? myChoices.includes(o.optionId) : o.optionId === myVoteOptionId;
           return (
             <li key={o.optionId} className="relative border-b border-rule py-3">
               {/* Re-mounted when the count changes → replays the ink wash */}
@@ -96,6 +172,7 @@ export function ResultsBars({ results, myVoteOptionId, compact = false }: { resu
           );
         })}
       </ol>
+      {method === "RANKED" && !compact && <RunoffTable results={results} />}
       {final && !compact && (
         <p className="flex items-center gap-2 font-serif text-sm italic text-umber">
           <Fleuron size={10} /> {t("results.final")}

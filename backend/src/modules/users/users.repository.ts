@@ -29,8 +29,11 @@ export async function findUserRowById(id: string): Promise<UserRow | null> {
   return rows[0] ?? null;
 }
 
-export async function findUserRowByEmail(email: string): Promise<UserRow | null> {
-  const { rows } = await query<UserRow>('SELECT * FROM users WHERE email = $1', [email]);
+/** Login lookup: an email (case-insensitive, stored in lower case) or an exact username. */
+export async function findUserRowByIdentifier(identifier: string): Promise<UserRow | null> {
+  const { rows } = identifier.includes('@')
+    ? await query<UserRow>('SELECT * FROM users WHERE email = lower($1)', [identifier])
+    : await query<UserRow>('SELECT * FROM users WHERE username = $1', [identifier]);
   return rows[0] ?? null;
 }
 

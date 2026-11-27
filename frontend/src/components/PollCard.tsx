@@ -16,6 +16,7 @@ function Kicker({ poll }: { poll: Poll }) {
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
       <StatusBadge status={poll.status} isOpen={poll.isOpen} />
       <Badge>{poll.creationMode === "AI" ? t("poll.aiWritten") : t("poll.manualWritten")}</Badge>
+      {poll.votingMethod !== "SINGLE" && <Badge className="text-ink">{t(`poll.method${poll.votingMethod}`)}</Badge>}
       {poll.access === "PRIVATE" && <Badge>{t("poll.private")}</Badge>}
       {poll.group && <Badge className="text-accent">{t("poll.groupBadge", { name: poll.group.name })}</Badge>}
       {poll.myVoteOptionId && <Badge className="text-ink">{t("poll.voted")}</Badge>}
@@ -35,7 +36,11 @@ export function PollMeta({ poll, className }: { poll: Poll; className?: string }
       <span className="mx-2 text-muted">/</span>
       {t("poll.answers", { count: poll.options.length })}
       <span className="mx-2 text-muted">/</span>
-      {closed ? t("poll.closedOn", when) : t("poll.closesOn", when)}
+      {poll.status === "SCHEDULED" && poll.startsAt
+        ? t("poll.opensOn", { date: fmt.shortDate(poll.startsAt), time: fmt.time(poll.startsAt) })
+        : closed
+          ? t("poll.closedOn", when)
+          : t("poll.closesOn", when)}
     </p>
   );
 }

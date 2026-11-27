@@ -10,7 +10,8 @@ type AuthStatus = "loading" | "authenticated" | "anonymous";
 interface AuthContextValue {
   user: User | null;
   status: AuthStatus;
-  login: (email: string, password: string) => Promise<User>;
+  /** `identifier` = email or username. */
+  login: (identifier: string, password: string) => Promise<User>;
   register: (data: { username: string; email: string; password: string; confirmPassword: string }) => Promise<User>;
   logout: () => Promise<void>;
   setUser: (user: User) => void;
@@ -50,8 +51,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const login = useCallback(
-    async (email: string, password: string) => {
-      const { user } = await api.login({ email, password });
+    async (identifier: string, password: string) => {
+      const { user } = await api.login({ identifier, password });
       setUser(user);
       return user;
     },

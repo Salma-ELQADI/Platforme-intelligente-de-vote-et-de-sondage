@@ -6,6 +6,7 @@ import { Alert, Button, EmptyState, PageHeader, PageLoader } from "@/components/
 import { useSocket } from "@/contexts/SocketContext";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { api, ApiError } from "@/lib/api";
+import { InvitationActions } from "@/components/messaging/InvitationCard";
 import { useI18n } from "@/contexts/PreferencesContext";
 import { cn } from "@/lib/format";
 import type { Notification } from "@/types";
@@ -67,7 +68,37 @@ export default function NotificationsPage() {
       {items?.length === 0 && <EmptyState title={t("notifications.emptyTitle")} description={t("notifications.emptyText")} />}
       {items && items.length > 0 && (
         <ol className="max-w-3xl border-t border-ink">
-          {items.map((n) => (
+          {items.map((n) =>
+            n.invitation ? (
+              // Group invitation: answered here, not a link.
+              <li key={n.id} className="flex gap-5 border-b border-rule py-5">
+                <span className="w-24 shrink-0 font-mono text-xs leading-6 text-umber">
+                  {fmt.shortDate(n.createdAt)}
+                  <br />
+                  {fmt.time(n.createdAt)}
+                </span>
+                <div className="flex-1">
+                  <span className={cn("kicker mb-1 block", n.invitation.status === "PENDING" ? "text-accent" : "text-umber")}>
+                    {t(`invitations.status.${n.invitation.status}`)}
+                  </span>
+                  {n.invitation.status === "PENDING" ? (
+                    <InvitationActions
+                      invitationId={n.invitation.id}
+                      groupName={n.invitation.groupName}
+                      invitedBy={n.invitation.invitedBy}
+                      onAnswered={(status) => {
+                        setItems((list) => list?.map((x) => (x.id === n.id ? { ...x, isRead: true, invitation: { ...x.invitation!, status } } : x)) ?? null);
+                        if (!n.isRead) setUnreadCount((c) => Math.max(0, c - 1));
+                      }}
+                    />
+                  ) : (
+                    <p className="font-serif text-lg leading-snug text-umber">
+                      {t("notifications.GROUP_INVITE", { name: n.invitation.invitedBy ?? "—", group: n.invitation.groupName })}
+                    </p>
+                  )}
+                </div>
+              </li>
+            ) : (
             <li key={n.id} className="border-b border-rule">
               <Link href={n.pollId ? `/polls/${n.pollId}` : "#"} onClick={() => markRead(n)} className="group flex gap-5 py-5">
                 <span className="w-24 shrink-0 font-mono text-xs leading-6 text-umber">
@@ -84,7 +115,8 @@ export default function NotificationsPage() {
                 </div>
               </Link>
             </li>
-          ))}
+            ),
+          )}
         </ol>
       )}
     </>

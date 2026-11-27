@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../middleware/auth';
 import { uuidParam, validate } from '../../middleware/validate';
+import { getPollSummary } from '../ai/ai.summary';
 import { castVote } from '../votes/votes.service';
 import { listPollsByCreator } from './polls.repository';
 import { createPollSchema, listPollsQuerySchema, myPollsQuerySchema, updatePollSchema, type ListPollsQuery } from './polls.schemas';
@@ -12,7 +13,18 @@ export const pollsRouter = Router();
 pollsRouter.use(authenticate);
 
 const idParam = { params: uuidParam() };
-const voteSchema = z.object({ optionId: z.uuid({ error: 'Proposition invalide' }) });
+/**
+ * { optionId } for a single-choice ballot (kept for compatibility), or
+ * { optionIds } for any method: the selected answers, in order of preference
+ * for ranked polls.
+ */
+const voteSchema = z
+  .object({
+    optionId: z.uuid({ error: 'Proposition invalide' }).optional(),
+    optionIds: z.array(z.uuid({ error: 'Proposition invalide' })).min(1, 'Choisissez au moins une proposition').max(10).optional(),
+  })
+  .refine((b) => (b.optionId === undefined) !== (b.optionIds === undefined), { message: 'Envoyez optionId ou optionIds' });
+const summaryQuery = z.object({ locale: z.enum(['fr', 'en', 'ar']).default('fr') });
 
 // GET /api/polls?status=ACTIVE|CLOSED&search=&page=&limit=
 pollsRouter.get('/', validate({ query: listPollsQuerySchema }), async (req, res) => {
@@ -57,6 +69,19 @@ pollsRouter.post('/:id/publish', validate(idParam), async (req, res) => {
   res.json({ success: true, data: { poll } });
 });
 
+// POST /api/polls/:id/unschedule  (SCHEDULED → DRAFT)
+pollsRouter.post('/:id/unschedule', validate(idParam), async (req, res) => {
+  const poll = await pollsService.unschedulePoll(req.user!, req.params.id as string);
+  res.json({ success: true, data: { poll } });
+});
+
+// GET /api/polls/:id/summary?locale=fr  (AI summary of a closed poll)
+pollsRouter.get('/:id/summary', validate({ ...idParam, query: summaryQuery }), async (req, res) => {
+  const { locale } = req.query as unknown as z.infer<typeof summaryQuery>;
+  const summary = await getPollSummary(req.user!, req.params.id as string, locale);
+  res.json({ success: true, data: { summary } });
+});
+
 // POST /api/polls/:id/close
 pollsRouter.post('/:id/close', validate(idParam), async (req, res) => {
   const poll = await pollsService.closePollManually(req.user!, req.params.id as string);
@@ -71,6 +96,6 @@ pollsRouter.get('/:id/results', validate(idParam), async (req, res) => {
 
 // POST /api/polls/:id/votes
 pollsRouter.post('/:id/votes', validate({ ...idParam, body: voteSchema }), async (req, res) => {
-  const data = await castVote(req.user!, req.params.id as string, req.body.optionId);
+  const data = await castVote(req.user!, req.params.id as string, req.body.optionIds ?? [req.body.optionId]);
   res.status(201).json({ success: true, data });
 });

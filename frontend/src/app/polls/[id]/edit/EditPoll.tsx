@@ -35,6 +35,10 @@ export function EditPoll({ id }: { id: string }) {
         access: poll.access,
         voters: poll.voters?.map((v) => v.username) ?? [],
         groupId: poll.group?.id ?? null,
+        votingMethod: poll.votingMethod,
+        maxChoices: poll.maxChoices,
+        startsAt: poll.startsAt,
+        remindBeforeMinutes: poll.remindBeforeMinutes,
       },
     [poll],
   );

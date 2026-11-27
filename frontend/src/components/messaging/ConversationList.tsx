@@ -8,6 +8,7 @@ import { useI18n } from "@/contexts/PreferencesContext";
 import { cn } from "@/lib/format";
 import type { Conversation } from "@/types";
 import { Alert, Button, Input, Spinner } from "../ui";
+import { PendingInvitations } from "./InvitationCard";
 import { NewConversationDialog } from "./NewConversationDialog";
 import { Avatar, conversationTitle, otherMember } from "./shared";
 
@@ -110,6 +111,7 @@ export function ConversationList({ activeId }: { activeId?: string }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        <PendingInvitations />
         {error && !conversations && <div className="p-4"><Alert>{errorText(error)}</Alert></div>}
         {!conversations && !error && (
           <div className="grid place-items-center py-16 text-umber"><Spinner /></div>

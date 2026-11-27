@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { authenticate } from '../../middleware/auth';
 import { uuidParam, validate } from '../../middleware/validate';
 import {
@@ -23,6 +24,7 @@ import * as service from './messaging.service';
  * the membership checks of messaging.service.
  */
 export const conversationsRouter = Router();
+const invitationParams = z.object({ id: z.uuid({ message: 'Identifiant invalide' }), invitationId: z.uuid({ message: 'Identifiant invalide' }) });
 conversationsRouter.use(authenticate);
 
 // GET /api/conversations?search=
@@ -61,9 +63,15 @@ conversationsRouter.patch('/:id', validate({ params: uuidParam(), body: updateGr
   res.json({ success: true, data: { conversation } });
 });
 
-// POST /api/conversations/:id/members { userIds }  (group admins)
+// POST /api/conversations/:id/members { userIds }  (group admins) → sends invitations
 conversationsRouter.post('/:id/members', validate({ params: uuidParam(), body: addMembersSchema }), async (req, res) => {
   const conversation = await service.addMembers(req.user!, req.params.id as string, req.body.userIds);
+  res.json({ success: true, data: { conversation } });
+});
+
+// DELETE /api/conversations/:id/invitations/:invitationId  (group admins withdraw an invitation)
+conversationsRouter.delete('/:id/invitations/:invitationId', validate({ params: invitationParams }), async (req, res) => {
+  const conversation = await service.cancelInvitation(req.user!, req.params.id as string, req.params.invitationId as string);
   res.json({ success: true, data: { conversation } });
 });
 
@@ -101,4 +109,23 @@ conversationsRouter.get('/:id/polls', validate({ params: uuidParam() }), async (
 conversationsRouter.post('/:id/read', validate({ params: uuidParam(), body: markReadSchema }), async (req, res) => {
   const data = await service.markRead(req.user!, req.params.id as string, req.body.seq);
   res.json({ success: true, data });
+});
+
+/** Group invitations of the signed-in user. */
+export const invitationsRouter = Router();
+invitationsRouter.use(authenticate);
+
+// GET /api/invitations  (my pending invitations)
+invitationsRouter.get('/', async (req, res) => {
+  res.json({ success: true, data: { invitations: await service.listInvitations(req.user!) } });
+});
+
+// POST /api/invitations/:id/accept
+invitationsRouter.post('/:id/accept', validate({ params: uuidParam() }), async (req, res) => {
+  res.json({ success: true, data: await service.acceptInvitation(req.user!, req.params.id as string) });
+});
+
+// POST /api/invitations/:id/decline
+invitationsRouter.post('/:id/decline', validate({ params: uuidParam() }), async (req, res) => {
+  res.json({ success: true, data: await service.declineInvitation(req.user!, req.params.id as string) });
 });

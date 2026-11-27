@@ -1,5 +1,6 @@
 import { pool, query, Queryable } from '../../db/pool';
-import type { OptionResult, Poll, PollAccess, PollRow, PollStatus, PollVoter } from './polls.types';
+import { instantRunoff } from './rankedChoice';
+import type { OptionResult, Poll, PollAccess, PollRow, PollStatus, PollVoter, RankedRound, VotingMethod } from './polls.types';
 
 /**
  * Base SELECT used by every read: poll + creator + options (as a JSON array)
@@ -31,6 +32,9 @@ const POLL_SELECT = `
            '[]'::json) AS options,
          (SELECT COUNT(*) FROM votes v WHERE v.poll_id = p.id)::int AS total_votes,
          (SELECT v.option_id FROM votes v WHERE v.poll_id = p.id AND v.user_id = $1) AS my_vote_option_id,
+         (SELECT COALESCE(array_agg(vc.option_id ORDER BY vc.rank), '{}')
+            FROM votes v JOIN vote_choices vc ON vc.vote_id = v.id
+           WHERE v.poll_id = p.id AND v.user_id = $1) AS my_choices,
          g.name AS group_name,
          -- Group polls are a group decision: every current member votes, the author included.
          CASE WHEN p.access = 'GROUP' THEN ${IS_GROUP_MEMBER}
@@ -45,6 +49,7 @@ type FullPollRow = PollRow & {
   options: Poll['options'];
   total_votes: number;
   my_vote_option_id: string | null;
+  my_choices: string[];
   can_vote: boolean;
   group_name: string | null;
 };
@@ -68,6 +73,11 @@ function toPoll(r: FullPollRow): Poll {
     options: r.options,
     totalVotes: r.total_votes,
     myVoteOptionId: r.my_vote_option_id,
+    myChoices: r.my_choices,
+    votingMethod: r.voting_method,
+    maxChoices: r.max_choices,
+    startsAt: r.starts_at?.toISOString() ?? null,
+    remindBeforeMinutes: r.remind_before_minutes,
     canVote: r.can_vote,
     voters: null,
     group: r.group_id ? { id: r.group_id, name: r.group_name ?? '' } : null,
@@ -134,12 +144,17 @@ export async function insertPoll(
   data: {
     question: string; description?: string | null; createdBy: string; creationMode: string;
     resultsVisibility: string; access: PollAccess; endTime: Date; groupId: string | null;
+    votingMethod: VotingMethod; maxChoices: number | null; startsAt: Date | null; remindBeforeMinutes: number | null;
   },
 ): Promise<string> {
   const { rows } = await db.query<{ id: string }>(
-    `INSERT INTO polls (question, description, created_by, creation_mode, results_visibility, access, end_time, group_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-    [data.question, data.description ?? null, data.createdBy, data.creationMode, data.resultsVisibility, data.access, data.endTime, data.groupId],
+    `INSERT INTO polls (question, description, created_by, creation_mode, results_visibility, access, end_time, group_id,
+                        voting_method, max_choices, starts_at, remind_before_minutes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
+    [
+      data.question, data.description ?? null, data.createdBy, data.creationMode, data.resultsVisibility, data.access, data.endTime,
+      data.groupId, data.votingMethod, data.maxChoices, data.startsAt, data.remindBeforeMinutes,
+    ],
   );
   return rows[0].id;
 }
@@ -164,6 +179,7 @@ export async function updatePollFields(
   data: {
     question?: string; description?: string | null; endTime?: Date; resultsVisibility?: string;
     access?: PollAccess; groupId?: string | null;
+    votingMethod?: VotingMethod; maxChoices?: number | null; startsAt?: Date | null; remindBeforeMinutes?: number | null;
   },
 ) {
   await db.query(
@@ -173,7 +189,11 @@ export async function updatePollFields(
        end_time           = COALESCE($5, end_time),
        results_visibility = COALESCE($6, results_visibility),
        access             = COALESCE($7, access),
-       group_id           = CASE WHEN $8::boolean THEN $9::uuid ELSE group_id END
+       group_id           = CASE WHEN $8::boolean THEN $9::uuid ELSE group_id END,
+       voting_method      = COALESCE($10, voting_method),
+       max_choices        = CASE WHEN $11::boolean THEN $12::smallint ELSE max_choices END,
+       starts_at          = CASE WHEN $13::boolean THEN $14::timestamptz ELSE starts_at END,
+       remind_before_minutes = CASE WHEN $15::boolean THEN $16::integer ELSE remind_before_minutes END
      WHERE id = $1`,
     [
       id,
@@ -185,6 +205,13 @@ export async function updatePollFields(
       data.access ?? null,
       data.groupId !== undefined,
       data.groupId ?? null,
+      data.votingMethod ?? null,
+      data.maxChoices !== undefined,
+      data.maxChoices ?? null,
+      data.startsAt !== undefined,
+      data.startsAt ?? null,
+      data.remindBeforeMinutes !== undefined,
+      data.remindBeforeMinutes ?? null,
     ],
   );
 }
@@ -245,31 +272,75 @@ export async function setPollActive(db: Queryable, id: string) {
   await db.query(`UPDATE polls SET status = 'ACTIVE', published_at = now() WHERE id = $1`, [id]);
 }
 
+export async function setPollStatus(db: Queryable, id: string, status: 'DRAFT' | 'SCHEDULED') {
+  await db.query('UPDATE polls SET status = $2 WHERE id = $1', [id, status]);
+}
+
+/** Validates the choices of a ballot belong to the poll (returns how many do). */
+export async function countPollOptions(db: Queryable, pollId: string, optionIds: string[]) {
+  const { rows } = await db.query<{ n: number }>('SELECT COUNT(*)::int AS n FROM poll_options WHERE poll_id = $1 AND id = ANY($2::uuid[])', [
+    pollId,
+    optionIds,
+  ]);
+  return rows[0].n;
+}
+
 export async function deletePoll(db: Queryable, id: string) {
   await db.query('DELETE FROM polls WHERE id = $1', [id]);
 }
 
-/** Vote counts per option, computed by PostgreSQL with a LEFT JOIN (options with 0 votes included). */
-export async function computeResults(pollId: string, db: Queryable = pool): Promise<{ totalVotes: number; options: OptionResult[] }> {
-  const { rows } = await db.query<{ id: string; option_text: string; position: number; votes: number }>(
-    `SELECT o.id, o.option_text, o.position, COUNT(v.id)::int AS votes
-       FROM poll_options o
-       LEFT JOIN votes v ON v.option_id = o.id
-      WHERE o.poll_id = $1
-      GROUP BY o.id
-      ORDER BY o.position`,
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/**
+ * Results computed from the stored ballots (never from client counters):
+ *  - SINGLE:   votes per option / ballots;
+ *  - MULTIPLE: ballots selecting each option / ballots ("x % of voters", the sum can exceed 100);
+ *  - RANKED:   first preferences per option, plus the instant-runoff count round by round.
+ * Options with no vote are included (LEFT JOIN).
+ */
+export async function computeResults(
+  pollId: string,
+  db: Queryable = pool,
+): Promise<{ totalVotes: number; options: OptionResult[]; method: VotingMethod; rounds?: RankedRound[]; winners?: string[] }> {
+  const [{ rows: meta }, { rows }] = await Promise.all([
+    db.query<{ voting_method: VotingMethod; ballots: number }>(
+      'SELECT voting_method, (SELECT COUNT(*) FROM votes WHERE poll_id = $1)::int AS ballots FROM polls WHERE id = $1',
+      [pollId],
+    ),
+    db.query<{ id: string; option_text: string; position: number; votes: number }>(
+      `SELECT o.id, o.option_text, o.position,
+              COUNT(vc.vote_id) FILTER (WHERE p.voting_method <> 'RANKED' OR vc.rank = 1)::int AS votes
+         FROM poll_options o
+         JOIN polls p ON p.id = o.poll_id
+         LEFT JOIN vote_choices vc ON vc.option_id = o.id
+        WHERE o.poll_id = $1
+        GROUP BY o.id
+        ORDER BY o.position`,
+      [pollId],
+    ),
+  ]);
+  const method = meta[0]?.voting_method ?? 'SINGLE';
+  const totalVotes = meta[0]?.ballots ?? 0;
+  const options = rows.map((r) => ({
+    optionId: r.id,
+    text: r.option_text,
+    position: r.position,
+    votes: r.votes,
+    // One decimal place; 0 when nobody has voted yet (avoids division by zero).
+    percentage: totalVotes === 0 ? 0 : round1((r.votes / totalVotes) * 100),
+  }));
+  if (method !== 'RANKED') return { totalVotes, options, method };
+
+  const { rows: ballots } = await db.query<{ choices: string[] }>(
+    `SELECT array_agg(vc.option_id ORDER BY vc.rank) AS choices
+       FROM votes v JOIN vote_choices vc ON vc.vote_id = v.id
+      WHERE v.poll_id = $1
+      GROUP BY v.id`,
     [pollId],
   );
-  const totalVotes = rows.reduce((sum, r) => sum + r.votes, 0);
-  return {
-    totalVotes,
-    options: rows.map((r) => ({
-      optionId: r.id,
-      text: r.option_text,
-      position: r.position,
-      votes: r.votes,
-      // One decimal place; 0 when nobody has voted yet (avoids division by zero).
-      percentage: totalVotes === 0 ? 0 : Math.round((r.votes / totalVotes) * 1000) / 10,
-    })),
-  };
+  const { rounds, winners } = instantRunoff(
+    options.map((o) => o.optionId),
+    ballots.map((b) => b.choices),
+  );
+  return { totalVotes, options, method, rounds, winners };
 }

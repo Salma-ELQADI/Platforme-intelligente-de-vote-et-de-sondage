@@ -1,6 +1,7 @@
 import type {
   Conversation,
   GeneratedPoll,
+  GroupInvitation,
   MemberRole,
   Message,
   Notification,
@@ -9,11 +10,20 @@ import type {
   PollFormValues,
   PollResults,
   PollStatus,
+  PollSummary,
   PollVoter,
   User,
   UserPreferences,
   VoteHistoryItem,
 } from "@/types";
+
+/** One field-level validation error. `code` + `params` let the UI word it in any language. */
+export interface FieldDetail {
+  field: string;
+  message: string;
+  code?: string;
+  params?: Record<string, string | number>;
+}
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api";
 
@@ -23,14 +33,19 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
-    public details?: { field: string; message: string }[],
+    public details?: FieldDetail[],
   ) {
     super(message);
   }
 
+  /** The detail reported for a given field (message, and a translatable code when the backend gives one). */
+  fieldDetail(field: string) {
+    return this.details?.find((d) => d.field === field || d.field.startsWith(`${field}.`));
+  }
+
   /** Returns the message attached to a given field, if the backend reported one. */
   fieldError(field: string) {
-    return this.details?.find((d) => d.field === field || d.field.startsWith(`${field}.`))?.message;
+    return this.fieldDetail(field)?.message;
   }
 }
 
@@ -72,7 +87,8 @@ export const api = {
   // ---- Auth ----
   register: (body: { username: string; email: string; password: string; confirmPassword: string }) =>
     request<{ user: User }>("/auth/register", { method: "POST", body }),
-  login: (body: { email: string; password: string }) => request<{ user: User }>("/auth/login", { method: "POST", body }),
+  /** `identifier` = email or username. */
+  login: (body: { identifier: string; password: string }) => request<{ user: User }>("/auth/login", { method: "POST", body }),
   logout: () => request<{ message: string }>("/auth/logout", { method: "POST" }),
   me: () => request<{ user: User }>("/auth/me"),
 
@@ -97,11 +113,14 @@ export const api = {
   deletePoll: (id: string) => request<void>(`/polls/${id}`, { method: "DELETE" }),
 
   // ---- Votes & results ----
-  vote: (pollId: string, optionId: string) =>
-    request<{ vote: { id: string; optionId: string }; results: PollResults }>(`/polls/${pollId}/votes`, {
+  /** optionIds: one for single choice, several for multiple choice, in preference order for ranked polls. */
+  vote: (pollId: string, optionIds: string[]) =>
+    request<{ vote: { id: string; optionId: string; optionIds: string[] }; results: PollResults }>(`/polls/${pollId}/votes`, {
       method: "POST",
-      body: { optionId },
+      body: { optionIds },
     }),
+  unschedulePoll: (id: string) => request<{ poll: Poll }>(`/polls/${id}/unschedule`, { method: "POST" }),
+  pollSummary: (id: string, locale: string) => request<{ summary: PollSummary }>(`/polls/${id}/summary${qs({ locale })}`),
   results: (pollId: string) => request<{ results: PollResults }>(`/polls/${pollId}/results`),
   myVotes: () => request<{ votes: VoteHistoryItem[] }>("/votes/me"),
 
@@ -138,4 +157,11 @@ export const api = {
   markConversationRead: (id: string, seq?: number) =>
     request<{ lastReadSeq: number }>(`/conversations/${id}/read`, { method: "POST", body: seq === undefined ? {} : { seq } }),
   groupPolls: (id: string) => request<{ polls: Poll[] }>(`/conversations/${id}/polls`),
+  cancelInvitation: (conversationId: string, invitationId: string) =>
+    request<{ conversation: Conversation }>(`/conversations/${conversationId}/invitations/${invitationId}`, { method: "DELETE" }),
+
+  // ---- Group invitations ----
+  invitations: () => request<{ invitations: GroupInvitation[] }>("/invitations"),
+  acceptInvitation: (id: string) => request<{ conversation: Conversation }>(`/invitations/${id}/accept`, { method: "POST" }),
+  declineInvitation: (id: string) => request<{ declined: boolean }>(`/invitations/${id}/decline`, { method: "POST" }),
 };

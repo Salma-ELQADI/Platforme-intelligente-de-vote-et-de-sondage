@@ -32,10 +32,19 @@ export const registerSchema = z
     message: 'Les mots de passe ne correspondent pas',
   });
 
-export const loginSchema = z.object({
-  email: emailSchema,
-  password: z.string({ error: 'Le mot de passe est obligatoire' }).min(1, 'Le mot de passe est obligatoire'),
-});
+/**
+ * Login with an email OR a username, in `identifier` (`email` is still
+ * accepted for existing clients). Usernames cannot contain "@", so the two
+ * are never ambiguous.
+ */
+export const loginSchema = z
+  .object({
+    identifier: z.string().trim().max(255).optional(),
+    email: z.string().trim().max(255).optional(),
+    password: z.string({ error: 'Le mot de passe est obligatoire' }).min(1, 'Le mot de passe est obligatoire'),
+  })
+  .transform(({ identifier, email, password }) => ({ identifier: identifier || email || '', password }))
+  .refine((d) => d.identifier.length > 0, { path: ['identifier'], message: "L'email ou le nom d'utilisateur est obligatoire" });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

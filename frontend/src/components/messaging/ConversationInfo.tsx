@@ -154,6 +154,32 @@ export function ConversationInfo({ conversation, meId, onClose }: { conversation
               );
             })}
           </ul>
+          {conversation.invitations?.length > 0 && (
+            <div className="mt-4">
+              <p className="kicker text-umber">{t("invitations.sent", { count: conversation.invitations.length })}</p>
+              <ul className="mt-2">
+                {conversation.invitations.map((inv) => (
+                  <li key={inv.id} className="flex items-center gap-3 border-b border-dashed border-rule py-2 last:border-b-0">
+                    <Avatar name={inv.username} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-umber"><bdi>{inv.username}</bdi></p>
+                      <p className="kicker text-[10px] text-accent">{t("invitations.status.PENDING")}</p>
+                    </div>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="text-xs text-umber underline underline-offset-2 hover:text-ink"
+                        onClick={() => run(() => api.cancelInvitation(conversation.id, inv.id), t("invitations.withdrawn", { name: inv.username }))}
+                      >
+                        {t("invitations.withdraw")}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {!isAdmin && <p className="mt-3 text-xs italic text-umber">{t("groups.adminsOnly")}</p>}
         </section>
       )}
@@ -188,7 +214,7 @@ export function ConversationInfo({ conversation, meId, onClose }: { conversation
         <div className="space-y-4">
           <PeoplePicker
             autoFocus
-            exclude={conversation.members.map((m) => m.id)}
+            exclude={[...conversation.members.map((m) => m.id), ...(conversation.invitations ?? []).map((i) => i.userId)]}
             selectedIds={toAdd.map((u) => u.id)}
             onPick={(u) => setToAdd((l) => (l.some((x) => x.id === u.id) ? l.filter((x) => x.id !== u.id) : [...l, u]))}
           />

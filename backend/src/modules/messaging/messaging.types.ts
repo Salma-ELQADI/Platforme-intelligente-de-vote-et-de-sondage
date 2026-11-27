@@ -49,11 +49,24 @@ export interface Conversation {
   myRole: MemberRole;
   myLastReadSeq: number;
   members: ConversationMember[];
+  /** Pending invitations of a group (people invited who have not answered yet). */
+  invitations: { id: string; userId: string; username: string; createdAt: string }[];
   lastMessage: Message | null;
   unreadCount: number;
   lastMessageAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'CANCELLED';
+
+/** A group invitation as seen by the invited user. */
+export interface GroupInvitation {
+  id: string;
+  status: InvitationStatus;
+  group: { id: string; name: string; memberCount: number };
+  invitedBy: { id: string; username: string } | null;
+  createdAt: string;
 }
 
 export interface MessageRow {
@@ -81,5 +94,6 @@ export interface ConversationRow {
   my_last_read_seq: string;
   unread_count: number;
   members: { id: string; username: string; role: MemberRole; lastReadSeq: number; joinedAt: string }[];
+  invitations: { id: string; userId: string; username: string; createdAt: string }[];
   last_message: (Omit<MessageRow, 'seq' | 'created_at'> & { seq: number; created_at: string }) | null;
 }

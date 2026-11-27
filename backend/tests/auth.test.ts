@@ -54,6 +54,17 @@ describe('Authentication', () => {
     expect(wrongPwd.body.error.code).toBe('INVALID_CREDENTIALS');
   });
 
+  it('logs in with the username as well as with the email', async () => {
+    await request(app).post('/api/auth/register').send(valid).expect(201);
+    const byName = await request(app).post('/api/auth/login').send({ identifier: valid.username, password: 'Password123' }).expect(200);
+    expect(byName.body.data.user.email).toBe(valid.email.toLowerCase());
+    await request(app).post('/api/auth/login').send({ identifier: valid.email.toUpperCase(), password: 'Password123' }).expect(200);
+    const wrong = await request(app).post('/api/auth/login').send({ identifier: valid.username, password: 'Wrong1234' }).expect(401);
+    const ghost = await request(app).post('/api/auth/login').send({ identifier: 'ghost_user', password: 'Wrong1234' }).expect(401);
+    expect(wrong.body.error).toEqual(ghost.body.error); // no username enumeration
+    await request(app).post('/api/auth/login').send({ password: 'Password123' }).expect(400);
+  });
+
   it('refuses login for a deactivated account', async () => {
     const user = await createUser();
     await query('UPDATE users SET is_active = FALSE WHERE id = $1', [user.id]);

@@ -7,7 +7,7 @@ export const app = createApp();
 let counter = 0;
 
 export async function resetDb() {
-  await query('TRUNCATE messages, conversation_members, conversations, notifications, votes, poll_voters, poll_options, polls, users RESTART IDENTITY CASCADE');
+  await query('TRUNCATE poll_summaries, vote_choices, messages, conversation_members, conversations, notifications, votes, poll_voters, poll_options, polls, users RESTART IDENTITY CASCADE');
 }
 
 export interface TestUser {
@@ -58,4 +58,24 @@ export async function expirePoll(pollId: string) {
 
 export async function closeDb() {
   await pool.end();
+}
+
+/** Accepts every pending group invitation of a user, through the API. */
+export async function acceptInvitations(user: TestUser) {
+  const res = await request(app).get('/api/invitations').set(user.auth).expect(200);
+  for (const inv of res.body.data.invitations) {
+    await request(app).post(`/api/invitations/${inv.id}/accept`).set(user.auth).expect(200);
+  }
+}
+
+/** Creates a group and has every invited member accept, so they are members. */
+export async function createGroupWithMembers(owner: TestUser, members: TestUser[], name = 'Rédaction') {
+  const res = await request(app)
+    .post('/api/conversations/groups')
+    .set(owner.auth)
+    .send({ name, memberIds: members.map((m) => m.id) })
+    .expect(201);
+  for (const m of [...new Set(members)]) await acceptInvitations(m);
+  const conv = await request(app).get(`/api/conversations/${res.body.data.conversation.id}`).set(owner.auth).expect(200);
+  return conv.body.data.conversation as { id: string; myRole: string; members: { id: string; role: string }[] };
 }

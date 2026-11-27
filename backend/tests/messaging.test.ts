@@ -8,7 +8,7 @@ import { query } from '../src/db/pool';
 import { initSocket } from '../src/socket';
 import { resetPresence } from '../src/socket/presence';
 import { setIo } from '../src/socket/realtime';
-import { app, closeDb, createUser, resetDb, type TestUser } from './helpers';
+import { acceptInvitations, app, closeDb, createGroupWithMembers, createUser, resetDb, type TestUser } from './helpers';
 
 let server: http.Server;
 let url: string;
@@ -62,14 +62,7 @@ async function openDirect(a: TestUser, b: TestUser) {
   return res.body.data.conversation as { id: string; type: string; members: { id: string }[] };
 }
 
-async function createGroup(owner: TestUser, members: TestUser[], name = 'Rédaction') {
-  const res = await request(app)
-    .post('/api/conversations/groups')
-    .set(owner.auth)
-    .send({ name, memberIds: members.map((m) => m.id) })
-    .expect(201);
-  return res.body.data.conversation as { id: string; myRole: string; members: { id: string; role: string }[] };
-}
+const createGroup = createGroupWithMembers;
 
 const send = (user: TestUser, conversationId: string, body: string, clientId: string = randomUUID()) =>
   request(app).post(`/api/conversations/${conversationId}/messages`).set(user.auth).send({ body, clientId });
@@ -285,6 +278,7 @@ describe('Group conversations (REST)', () => {
     await send(owner, group.id, 'Historique').expect(201);
 
     await request(app).post(`/api/conversations/${group.id}/members`).set(owner.auth).send({ userIds: [late.id] }).expect(200);
+    await acceptInvitations(late);
     const lateView = await request(app).get(`/api/conversations/${group.id}`).set(late.auth).expect(200);
     expect(lateView.body.data.conversation.unreadCount).toBe(0);
 

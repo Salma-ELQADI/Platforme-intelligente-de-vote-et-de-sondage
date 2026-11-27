@@ -4,9 +4,16 @@ import { badRequest } from '../utils/errors';
 
 type Schemas = { body?: ZodType; query?: ZodType; params?: ZodType };
 
-/** Converts zod issues into a flat, front-end friendly list. */
+/**
+ * Converts zod issues into a flat, front-end friendly list. A custom rule may
+ * attach a stable `code` (params.code) that clients translate precisely; the
+ * French `message` stays as the readable default.
+ */
 export function formatIssues(error: z.ZodError) {
-  return error.issues.map((i) => ({ field: i.path.join('.'), message: i.message }));
+  return error.issues.map((i) => {
+    const code = i.code === 'custom' ? (i.params as { code?: string } | undefined)?.code : undefined;
+    return { field: i.path.join('.'), message: i.message, ...(code && { code }) };
+  });
 }
 
 /**

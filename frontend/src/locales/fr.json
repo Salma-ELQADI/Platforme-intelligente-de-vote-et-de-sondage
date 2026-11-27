@@ -111,7 +111,7 @@
     "NOT_FOUND": "Cette ressource n’existe pas ou ne vous est pas accessible.",
     "ROUTE_NOT_FOUND": "Cette ressource n’existe pas.",
     "RATE_LIMITED": "Trop de requêtes, patientez quelques secondes.",
-    "INVALID_CREDENTIALS": "Email ou mot de passe incorrect.",
+    "INVALID_CREDENTIALS": "Identifiant ou mot de passe incorrect.",
     "ACCOUNT_DISABLED": "Ce compte est désactivé.",
     "EMAIL_TAKEN": "Cet email est déjà utilisé.",
     "USERNAME_TAKEN": "Ce nom d’utilisateur est déjà pris.",
@@ -136,7 +136,15 @@
     "AI_UNAVAILABLE": "Le service d’IA est indisponible.",
     "AI_TIMEOUT": "L’IA a mis trop de temps à répondre. Réessayez.",
     "LAST_ADMIN": "Le groupe doit garder au moins un administrateur.",
-    "CLIENT_ID_REUSED": "Ce message a déjà été envoyé ailleurs."
+    "CLIENT_ID_REUSED": "Ce message a déjà été envoyé ailleurs.",
+    "INVALID_CHOICES": "Ce bulletin ne respecte pas le mode de scrutin.",
+    "POLL_NOT_STARTED": "Ce sondage n’est pas encore ouvert.",
+    "POLL_NOT_SCHEDULED": "Ce sondage n’est pas programmé.",
+    "INVALID_REMINDER": "Le rappel doit tomber après l’ouverture : choisissez un délai plus court.",
+    "POLL_NOT_CLOSED": "L’analyse est disponible à la clôture du scrutin.",
+    "NO_VOTES": "Aucun vote : il n’y a rien à analyser.",
+    "INVITATION_ANSWERED": "Cette invitation a déjà reçu une réponse.",
+    "GROUP_FULL": "Ce groupe est complet."
   },
   "fieldErrors": {
     "username": "3 à 30 caractères : lettres, chiffres, « . », « - » et « _ ».",
@@ -153,7 +161,20 @@
     "groupId": "Choisissez un groupe dont vous êtes membre.",
     "topic": "Le sujet doit compter entre 3 et 200 caractères.",
     "name": "Le nom du groupe doit compter entre 1 et 80 caractères.",
-    "body": "Le message doit compter entre 1 et 2000 caractères."
+    "body": "Le message doit compter entre 1 et 2000 caractères.",
+    "identifier": "Saisissez votre email ou votre nom d’utilisateur.",
+    "maxChoices": "Le nombre de choix doit être compris entre 2 et le nombre de réponses.",
+    "startsAt": "L’ouverture doit être comprise entre 1 minute et 1 an, et précéder la clôture.",
+    "remindBeforeMinutes": "Les rappels sont réservés aux sondages privés et de groupe.",
+    "codes": {
+      "SELF_INVITE": "Vous ne pouvez pas vous inviter vous-même : l’auteur d’un sondage privé ne vote pas.",
+      "UNKNOWN_VOTERS": "Utilisateur introuvable : {names}.",
+      "NOT_GROUP_MEMBER": "Vous devez faire partie du groupe pour lui adresser un sondage.",
+      "MAX_CHOICES_REQUIRED": "Indiquez le nombre maximal de choix.",
+      "MAX_CHOICES_TOO_MANY": "Le nombre de choix ne peut pas dépasser le nombre de réponses.",
+      "END_BEFORE_START": "La clôture doit suivre l’ouverture d’au moins 1 minute.",
+      "REMINDER_PUBLIC": "Les rappels sont réservés aux sondages privés et de groupe."
+    }
   },
   "time": {
     "over": "terminé",
@@ -170,7 +191,8 @@
   "status": {
     "DRAFT": "Brouillon",
     "ACTIVE": "Scrutin ouvert",
-    "CLOSED": "Scrutin clos"
+    "CLOSED": "Scrutin clos",
+    "SCHEDULED": "Programmé"
   },
   "poll": {
     "aiWritten": "Rédaction assistée par IA",
@@ -202,7 +224,14 @@
     "deleted": "Sondage supprimé.",
     "draftDeleted": "Brouillon supprimé.",
     "draftSaved": "Brouillon enregistré.",
-    "changesSaved": "Modifications enregistrées."
+    "changesSaved": "Modifications enregistrées.",
+    "methodMULTIPLE": "Choix multiple",
+    "methodRANKED": "Vote par classement",
+    "methodMultipleMax_one": "Choix multiple",
+    "methodMultipleMax_other": "Choix multiple · {count} au plus",
+    "opensOn": "ouverture le {date} à {time}",
+    "unschedule": "Déprogrammer",
+    "unscheduled": "Sondage repassé en brouillon."
   },
   "home": {
     "front": "À la une",
@@ -284,7 +313,9 @@
     "voteCast": "Bulletin déposé. Votre vote est enregistré.",
     "roomError": "Impossible de suivre ce sondage en temps réel.",
     "groupPoll": "Sondage du groupe {name}",
-    "openGroup": "Ouvrir la discussion"
+    "openGroup": "Ouvrir la discussion",
+    "opensOn": "Ouverture le {date} à {time}",
+    "scheduledNotice": "Ce sondage est programmé : le scrutin ouvrira le {date} à {time}. D’ici là, vous seul pouvez le lire."
   },
   "ballot": {
     "title": "Bulletin de vote",
@@ -296,7 +327,19 @@
     "notMember": "Ce scrutin est réservé aux membres du groupe.",
     "submit": "Déposer mon bulletin",
     "oneBallot": "Un seul bulletin par participant. Il ne pourra pas être modifié.",
-    "stamp": "A voté"
+    "stamp": "A voté",
+    "titleSINGLE": "Bulletin de vote",
+    "titleMULTIPLE": "Bulletin à choix multiple",
+    "titleRANKED": "Bulletin de classement",
+    "instructionsMultiple_one": "Cochez une case, puis déposez votre bulletin.",
+    "instructionsMultiple_other": "Cochez jusqu’à {count} cases, puis déposez votre bulletin.",
+    "instructionsRanked": "Cliquez les réponses dans votre ordre de préférence : 1 pour votre premier choix. Classer toutes les réponses n’est pas obligatoire.",
+    "rank": "rang {n}",
+    "selectedOf": "{n} / {max} choix",
+    "ranked_one": "{count} réponse classée",
+    "ranked_other": "{count} réponses classées",
+    "reset": "Tout effacer",
+    "rankedHint": "Si votre premier choix est éliminé au dépouillement, votre voix passe au suivant."
   },
   "results": {
     "finalCount": "Bulletins au dépouillement final",
@@ -309,7 +352,18 @@
     "leading": "En tête",
     "ballots_one": "{count} voix",
     "ballots_other": "{count} voix",
-    "final": "Résultats définitifs, arrêtés à la clôture du scrutin."
+    "final": "Résultats définitifs, arrêtés à la clôture du scrutin.",
+    "runoff": "Dépouillement par tours",
+    "runoffText": "À chaque tour, la réponse la moins soutenue est éliminée et ses bulletins passent au choix suivant, jusqu’à une majorité.",
+    "answer": "Réponse",
+    "round": "Tour {n}",
+    "exhausted_one": "{count} bulletin épuisé (plus aucun choix en lice)",
+    "exhausted_other": "{count} bulletins épuisés (plus aucun choix en lice)",
+    "winner_one": "Vainqueur au dépouillement par tours",
+    "winner_other": "Égalité parfaite",
+    "leadingRunoff": "En tête au dépouillement provisoire",
+    "firstPreferences": "Répartition des premiers choix",
+    "shareOfVoters": "Part des votants ayant retenu chaque réponse (le total peut dépasser 100 %)."
   },
   "pollForm": {
     "question": "La question",
@@ -352,7 +406,26 @@
     "lockedAfterPublish": "Un sondage publié ne peut plus être modifié.",
     "twoAnswers": "Ajoutez au moins deux réponses non vides.",
     "inviteOne": "Invitez au moins un votant avant de publier un sondage privé.",
-    "pickGroup": "Choisissez le groupe auquel adresser ce sondage."
+    "pickGroup": "Choisissez le groupe auquel adresser ce sondage.",
+    "method": "Mode de scrutin",
+    "singleTitle": "Choix unique",
+    "singleText": "Une seule réponse par votant.",
+    "multipleTitle": "Choix multiple",
+    "multipleText": "Plusieurs réponses par votant, dans une limite que vous fixez.",
+    "rankedTitle": "Vote par classement",
+    "rankedText": "Les votants classent les réponses ; le vainqueur est désigné par éliminations successives.",
+    "maxChoices": "Nombre maximal de choix",
+    "schedule": "Programmer l’ouverture",
+    "scheduleHint": "Le sondage est publié maintenant mais le scrutin n’ouvre qu’à l’heure choisie.",
+    "opening": "Ouverture du scrutin",
+    "reminder": "Rappel avant la clôture",
+    "reminderHint": "Un avis est envoyé à ceux qui n’ont pas encore voté.",
+    "noReminder": "Pas de rappel",
+    "remind15": "15 minutes avant",
+    "remind60": "1 heure avant",
+    "remind180": "3 heures avant",
+    "remind1440": "1 jour avant",
+    "scheduledPublish": "Publier programme l’ouverture ; vous pourrez déprogrammer le sondage pour le modifier."
   },
   "ai": {
     "commission": "La commande",
@@ -412,7 +485,8 @@
     "votesCount_one": "{count} vote reçu",
     "votesCount_other": "{count} votes reçus",
     "emptyTitle": "Rien sous presse.",
-    "emptyText": "Rédigez votre premier sondage : il apparaîtra ici, du brouillon jusqu’aux résultats."
+    "emptyText": "Rédigez votre premier sondage : il apparaîtra ici, du brouillon jusqu’aux résultats.",
+    "scheduled": "Programmés"
   },
   "myVotes": {
     "kicker": "Vos bulletins",
@@ -434,7 +508,10 @@
     "emptyTitle": "Aucune dépêche.",
     "emptyText": "Les avis de clôture de vos sondages arriveront ici.",
     "new": "Nouveau",
-    "POLL_CLOSED": "Le sondage « {question} » est clôturé. Les résultats définitifs sont disponibles."
+    "POLL_CLOSED": "Le sondage « {question} » est clôturé. Les résultats définitifs sont disponibles.",
+    "POLL_OPENED": "Vous êtes invité à voter au sondage « {question} ».",
+    "POLL_REMINDER": "Le sondage « {question} » se termine bientôt : vous n’avez pas encore voté.",
+    "GROUP_INVITE": "{name} vous invite à rejoindre le groupe « {group} »."
   },
   "profile": {
     "kicker": "Espace lecteur",
@@ -493,7 +570,8 @@
     "passwordHint": "8 caractères, une lettre et un chiffre",
     "confirm": "Confirmation",
     "submitRegister": "Créer mon compte",
-    "quote": "« {text} »"
+    "quote": "« {text} »",
+    "identifier": "Email ou nom d’utilisateur"
   },
   "notFound": {
     "kicker": "Erratum",
@@ -576,9 +654,9 @@
     "members": "Membres",
     "selected_one": "{count} membre choisi",
     "selected_other": "{count} membres choisis",
-    "create": "Créer le groupe",
+    "create": "Créer et inviter",
     "start": "Écrire",
-    "add": "Ajouter",
+    "add": "Inviter",
     "pickOne": "Choisissez au moins un membre."
   },
   "groups": {
@@ -590,8 +668,8 @@
     "rename": "Renommer",
     "name": "Nom du groupe",
     "renamed": "Groupe renommé.",
-    "addMembers": "Ajouter des membres",
-    "added": "Membres ajoutés.",
+    "addMembers": "Inviter des membres",
+    "added": "Invitations envoyées.",
     "makeAdmin": "Nommer administrateur",
     "revokeAdmin": "Retirer les droits",
     "removeMember": "Retirer du groupe",
@@ -606,5 +684,31 @@
     "createdBy": "Créé par {name}",
     "adminsOnly": "Seuls les administrateurs gèrent le nom et les membres du groupe.",
     "directWith": "Conversation privée avec {name}"
+  },
+  "summary": {
+    "title": "L’analyse de la rédaction",
+    "writing": "Rédaction de l’analyse",
+    "credit": "Rédigé par l’IA ({model}) à partir des résultats définitifs."
+  },
+  "invitations": {
+    "title": "Invitations",
+    "pending_one": "{count} invitation en attente",
+    "pending_other": "{count} invitations en attente",
+    "text": "{name} vous invite à rejoindre le groupe {group}.",
+    "textAnonymous": "Vous êtes invité à rejoindre le groupe {group}.",
+    "accept": "Accepter",
+    "decline": "Refuser",
+    "accepted": "Vous avez rejoint « {group} ».",
+    "declined": "Invitation à « {group} » refusée.",
+    "sent_one": "{count} invitation envoyée",
+    "sent_other": "{count} invitations envoyées",
+    "withdraw": "Retirer",
+    "withdrawn": "Invitation de {name} retirée.",
+    "status": {
+      "PENDING": "Invitation en attente",
+      "ACCEPTED": "Invitation acceptée",
+      "DECLINED": "Invitation refusée",
+      "CANCELLED": "Invitation retirée"
+    }
   }
 }

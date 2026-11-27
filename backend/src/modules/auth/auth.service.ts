@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { env } from '../../config/env';
 import { AppError, conflict, isPgError, PG_ERRORS } from '../../utils/errors';
-import { findUserRowByEmail, insertUser, toPublicUser } from '../users/users.repository';
+import { findUserRowByIdentifier, insertUser, toPublicUser } from '../users/users.repository';
 import type { PublicUser } from '../users/users.types';
 import { signToken } from './auth.tokens';
 import type { LoginInput, RegisterInput } from './auth.schemas';
@@ -34,11 +34,12 @@ export async function register(input: RegisterInput): Promise<{ user: PublicUser
 }
 
 export async function login(input: LoginInput): Promise<{ user: PublicUser; token: string }> {
-  const row = await findUserRowByEmail(input.email);
+  const row = await findUserRowByIdentifier(input.identifier);
   const valid = await bcrypt.compare(input.password, row?.password_hash ?? DUMMY_HASH);
 
-  // Same message whether the email or the password is wrong (prevents account enumeration).
-  if (!row || !valid) throw new AppError(401, 'INVALID_CREDENTIALS', 'Email ou mot de passe incorrect');
+  // Same message whether the account or the password is wrong (prevents account enumeration);
+  // the bcrypt comparison always runs, so response times do not reveal it either.
+  if (!row || !valid) throw new AppError(401, 'INVALID_CREDENTIALS', 'Identifiants ou mot de passe incorrects');
   if (!row.is_active) throw new AppError(403, 'ACCOUNT_DISABLED', 'Ce compte a été désactivé');
 
   const user = toPublicUser(row);

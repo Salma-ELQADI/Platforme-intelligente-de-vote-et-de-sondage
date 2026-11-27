@@ -49,7 +49,19 @@ export default function MyVotesPage() {
                     <StatusBadge status={v.poll.status} isOpen={v.poll.status === "ACTIVE" ? new Date(v.poll.endTime) > new Date() : false} />
                   </div>
                 </div>
-                <span className="font-serif text-lg italic text-ink md:col-span-4">{t("myVotes.quoted", { text: v.option.text })}</span>
+                {v.choices.length > 1 ? (
+                  // Ranked ballots keep their order; multiple choice lists the selection.
+                  <ol className="font-serif text-[17px] italic text-ink md:col-span-4">
+                    {v.choices.map((c) => (
+                      <li key={c.id} className="flex gap-2">
+                        {v.poll.votingMethod === "RANKED" && <span className="font-mono text-xs not-italic leading-7 text-umber">{c.rank}.</span>}
+                        <bdi>{c.text}</bdi>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <span className="font-serif text-lg italic text-ink md:col-span-4">{t("myVotes.quoted", { text: v.option.text })}</span>
+                )}
               </li>
             ))}
           </ol>

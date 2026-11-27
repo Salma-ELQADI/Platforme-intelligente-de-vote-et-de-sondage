@@ -1,5 +1,5 @@
 import { pool, query, Queryable } from '../../db/pool';
-import type { Conversation, ConversationRow, MemberRole, Message, MessageRow } from './messaging.types';
+import type { Conversation, ConversationRow, GroupInvitation, MemberRole, Message, MessageRow } from './messaging.types';
 
 export function toMessage(r: MessageRow | NonNullable<ConversationRow['last_message']>): Message {
   return {
@@ -25,6 +25,7 @@ function toConversation(r: ConversationRow): Conversation {
     myRole: r.my_role,
     myLastReadSeq: Number(r.my_last_read_seq),
     members: r.members.map((m) => ({ ...m, lastReadSeq: Number(m.lastReadSeq), joinedAt: new Date(m.joinedAt).toISOString(), online: false })),
+    invitations: (r.invitations ?? []).map((i) => ({ ...i, createdAt: new Date(i.createdAt).toISOString() })),
     lastMessage: r.last_message ? toMessage(r.last_message) : null,
     unreadCount: r.unread_count,
     lastMessageAt: r.last_message_at?.toISOString() ?? null,
@@ -54,6 +55,10 @@ const CONVERSATION_SELECT = `
                           ORDER BY m.joined_at, u.username)
             FROM conversation_members m JOIN users u ON u.id = m.user_id
            WHERE m.conversation_id = c.id) AS members,
+         (SELECT json_agg(json_build_object('id', gi.id, 'userId', gi.user_id, 'username', iu.username, 'createdAt', gi.created_at)
+                          ORDER BY gi.created_at)
+            FROM group_invitations gi JOIN users iu ON iu.id = gi.user_id
+           WHERE gi.conversation_id = c.id AND gi.status = 'PENDING') AS invitations,
          (SELECT row_to_json(lm) FROM (
             SELECT msg.id, msg.seq, msg.conversation_id, msg.sender_id, su.username AS sender_username,
                    msg.body, msg.client_id, msg.created_at, msg.kind, ${MESSAGE_POLL_JSON} AS poll
@@ -175,19 +180,95 @@ export async function findOrCreateDirect(db: Queryable, creatorId: string, other
   return { id: rows[0].id, created: false };
 }
 
-export async function insertGroup(db: Queryable, data: { name: string; creatorId: string; memberIds: string[] }) {
+/** Creates a group whose only member is its creator (ADMIN); the others are invited. */
+export async function insertGroup(db: Queryable, data: { name: string; creatorId: string }) {
   const { rows } = await db.query<{ id: string }>(
     `INSERT INTO conversations (type, name, created_by) VALUES ('GROUP', $1, $2) RETURNING id`,
     [data.name, data.creatorId],
   );
-  const id = rows[0].id;
-  await db.query(
-    `INSERT INTO conversation_members (conversation_id, user_id, role)
-     SELECT $1, u, CASE WHEN u = $2 THEN 'ADMIN' ELSE 'MEMBER' END
-       FROM unnest($3::uuid[]) AS u`,
-    [id, data.creatorId, [data.creatorId, ...data.memberIds]],
+  await db.query(`INSERT INTO conversation_members (conversation_id, user_id, role) VALUES ($1, $2, 'ADMIN')`, [rows[0].id, data.creatorId]);
+  return rows[0].id;
+}
+
+// ---------------------------------------------------------------------
+// Group invitations
+// ---------------------------------------------------------------------
+
+/**
+ * Invites users who are neither members nor already invited, and creates
+ * the GROUP_INVITE notification of each invitation. Returns the new
+ * notifications (to push them in real time after COMMIT).
+ */
+export async function insertInvitations(db: Queryable, conversationId: string, invitedBy: string, userIds: string[]) {
+  const { rows } = await db.query<{ id: string; user_id: string }>(
+    `INSERT INTO group_invitations (conversation_id, user_id, invited_by)
+     SELECT $1, u, $2 FROM unnest($3::uuid[]) AS u
+      WHERE NOT EXISTS (SELECT 1 FROM conversation_members m WHERE m.conversation_id = $1 AND m.user_id = u)
+     ON CONFLICT (conversation_id, user_id) WHERE status = 'PENDING' DO NOTHING
+     RETURNING id, user_id`,
+    [conversationId, invitedBy, userIds],
   );
-  return id;
+  if (!rows.length) return [];
+  const { rows: notifications } = await db.query<{ id: string; user_id: string }>(
+    `INSERT INTO notifications (user_id, type, message, invitation_id)
+     SELECT gi.user_id, 'GROUP_INVITE',
+            coalesce(u.username, 'Quelqu''un') || ' vous invite à rejoindre le groupe « ' || left(c.name, 80) || ' ».', gi.id
+       FROM group_invitations gi
+       JOIN conversations c ON c.id = gi.conversation_id
+       LEFT JOIN users u ON u.id = gi.invited_by
+      WHERE gi.id = ANY($1::uuid[])
+     RETURNING id, user_id`,
+    [rows.map((r) => r.id)],
+  );
+  return notifications;
+}
+
+export async function countPendingInvitations(db: Queryable, conversationId: string) {
+  const { rows } = await db.query<{ n: number }>(
+    `SELECT COUNT(*)::int AS n FROM group_invitations WHERE conversation_id = $1 AND status = 'PENDING'`,
+    [conversationId],
+  );
+  return rows[0].n;
+}
+
+const INVITATION_SELECT = `
+  SELECT gi.id, gi.status, gi.created_at, gi.user_id, gi.conversation_id,
+         c.name AS group_name,
+         (SELECT COUNT(*) FROM conversation_members m WHERE m.conversation_id = c.id)::int AS member_count,
+         gi.invited_by, u.username AS invited_by_username
+    FROM group_invitations gi
+    JOIN conversations c ON c.id = gi.conversation_id
+    LEFT JOIN users u ON u.id = gi.invited_by`;
+
+type InvitationRow = {
+  id: string; status: GroupInvitation['status']; created_at: Date; user_id: string; conversation_id: string;
+  group_name: string; member_count: number; invited_by: string | null; invited_by_username: string | null;
+};
+
+export const toInvitation = (r: InvitationRow): GroupInvitation => ({
+  id: r.id,
+  status: r.status,
+  group: { id: r.conversation_id, name: r.group_name, memberCount: r.member_count },
+  invitedBy: r.invited_by ? { id: r.invited_by, username: r.invited_by_username ?? '' } : null,
+  createdAt: r.created_at.toISOString(),
+});
+
+export async function listPendingInvitations(userId: string) {
+  const { rows } = await query<InvitationRow>(`${INVITATION_SELECT} WHERE gi.user_id = $1 AND gi.status = 'PENDING' ORDER BY gi.created_at DESC`, [
+    userId,
+  ]);
+  return rows.map(toInvitation);
+}
+
+/** Locks one invitation row for the rest of the transaction. */
+export async function lockInvitation(db: Queryable, id: string) {
+  const { rows } = await db.query<InvitationRow>(`${INVITATION_SELECT} WHERE gi.id = $1 FOR UPDATE OF gi`, [id]);
+  return rows[0] ?? null;
+}
+
+export async function respondToInvitation(db: Queryable, id: string, status: 'ACCEPTED' | 'DECLINED' | 'CANCELLED') {
+  await db.query('UPDATE group_invitations SET status = $2, responded_at = now() WHERE id = $1', [id, status]);
+  await db.query('UPDATE notifications SET is_read = TRUE WHERE invitation_id = $1', [id]);
 }
 
 export async function renameGroup(db: Queryable, conversationId: string, name: string) {

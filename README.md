@@ -42,7 +42,8 @@ This README is the **technical reference** of the project. It is meant for devel
 23. [Internationalization (French, English, Arabic)](#23-internationalization-french-english-arabic)
 24. [RTL implementation (Arabic edition)](#24-rtl-implementation-arabic-edition)
 25. [Testing the new features](#25-testing-the-new-features)
-26. [Technical Defense Guide – Abdelilah](#technical-defense-guide--abdelilah)
+26. [Voting methods, scheduling, reminders, AI summaries and invitations](#26-voting-methods-scheduling-reminders-ai-summaries-and-invitations)
+27. [Technical Defense Guide – Abdelilah](#technical-defense-guide--abdelilah)
 
 ---
 
@@ -62,6 +63,9 @@ VoteLive is a web platform where authenticated users can:
 | **Administration** | Admins can list users, change roles, deactivate accounts, close any poll and delete any poll. |
 | **Messaging** | Private conversations and groups in real time: typing indicators, presence, unread counts, read receipts, history with pagination, reliable sending with retry. Group admins manage names and members (§21). |
 | **Group polls** | A group (friends, a work team) can decide together: "Where do we go this weekend?", "Should the cafeteria be larger?". Only current members see and vote, the author included, and the poll is announced in the chat (§21). |
+| **Voting methods** | Single choice, multiple choice (up to N answers) and ranked choice counted by instant runoff, with a round-by-round table (§26). |
+| **Scheduling and reminders** | Polls can open at a chosen time; private and group polls can remind non-voters before closing (§26). |
+| **AI summary** | When a poll closes, the AI writes a short factual summary of the results in the reader's language, cached per language (§26). |
 | **Themes and languages** | Day and evening editions plus system mode, without a flash on load (§22). French, English and Arabic, with a genuinely right-to-left Arabic edition (§23, §24). Preferences follow the account. |
 
 > **Specification note:** the original specification PDF mentions MySQL. The project team chose **PostgreSQL** instead. Every requirement (relational model, unique constraint, transactions) applies the same way. PostgreSQL also provides `UUID` generation, partial indexes, `RETURNING` and `FOR SHARE` row locks, which this implementation uses (see [§18](#18-technical-decisions-and-trade-offs)).
@@ -1231,7 +1235,9 @@ flowchart LR
 * [tests/helpers.ts](backend/tests/helpers.ts): `resetDb()` (TRUNCATE before each test), `createUser()` (registers through the API), `createPoll()`, `expirePoll()` (moves `end_time` into the past to simulate time).
 * The developer's `backend/.env` is **not loaded** in tests.
 
-### 16.3 Scenarios covered (99 tests in 8 files, all passing)
+### 16.3 Scenarios covered (120 tests in 10 files, all passing)
+
+Voting methods, scheduling, reminders, AI summaries and invitations (`votingMethods.test.ts`, 14; `invitations.test.ts`, 6) are listed in [§26.6](#266-tests).
 
 Messaging and group polls (`messaging.test.ts`, 23 tests; `groupPolls.test.ts`, 5 tests) are detailed in [§25](#25-testing-the-new-features). `privatePolls.test.ts` (8 tests) covers private polls and the "owner cannot vote" rule.
 
@@ -1248,7 +1254,7 @@ Messaging and group polls (`messaging.test.ts`, 23 tests; `groupPolls.test.ts`, 
 ```bash
 docker compose up -d postgres # PostgreSQL (creates votelive_test on first start)
 cd backend
-npm test                      # vitest run → 8 files, 99 tests
+npm test                      # vitest run → 10 files, 120 tests
 npm run test:watch            # watch mode
 npm run typecheck             # tsc --noEmit
 ```
@@ -1425,7 +1431,7 @@ npm run dev                # http://localhost:3000
 * **AI quality:** LLM output can be biased, inaccurate or repetitive. Moderation relies on prompt rules plus human review. There is no dedicated moderation model.
 * **No frontend automated tests** and no automated test against the real OpenRouter API (see [§16.5](#165-what-is-not-covered-by-automated-tests)).
 * **Account features:** no email verification, no password reset by email, no 2FA, no account deletion endpoint.
-* **Polls:** single-choice only (no multiple choice or ranking). Published polls cannot be edited. Results are computed on each request without caching.
+* **Polls:** published polls cannot be edited (a scheduled poll can be unscheduled first). Results are computed on each request without caching.
 * **Time zones:** the UI uses the browser's local time for input and display. The server stores everything in UTC (`TIMESTAMPTZ`).
 * **Messaging:** presence, typing and the message rate limiter live in process memory (single instance, like the rest of the real-time layer). There is no separate "delivered" state (only sent / read), no editing or deleting of messages, no attachments, and no end-to-end encryption: the server can read messages, like any classic web chat. Removed group members lose the whole history, not only later messages (deliberate, see §21.2). Message search covers conversation names and participants, not message contents.
 * **Translations of server messages:** the backend writes its messages in French. English and Arabic readers see messages translated by error code, which are slightly less specific for a few validation cases.
@@ -1439,7 +1445,7 @@ Realistic next steps, **not implemented**:
 1. Refresh tokens with rotation and a server-side revocation list. Password reset and email verification.
 2. Socket.IO Redis adapter and a Redis rate-limit store to run several backend instances behind a load balancer.
 3. Frontend tests (React Testing Library for components, Playwright E2E for vote, real-time and AI flows) in a CI pipeline (GitHub Actions running `npm test` with a PostgreSQL service).
-4. Multiple-choice and ranked polls, anonymous public polls with a share link, CSV export of results.
+4. Anonymous public polls with a share link, CSV export of results.
 5. Charts (pie and timeline of votes) in addition to progress bars.
 6. AI: a moderation step on the topic and output, model fallback (`models: [...]` in OpenRouter), suggestions of options for a question the user wrote, cost tracking per user.
 7. Observability: request IDs, Prometheus metrics (vote rate, AI latency and errors), health checks for OpenRouter.
@@ -1498,8 +1504,9 @@ Why not the alternatives:
 | See a conversation, its members, its history; mark it read; send typing | its members (active accounts) | **404**: the conversation is not revealed |
 | Send a message | members; the sender is always the session user (a `senderId` in the payload is ignored) | 404 |
 | Open a direct conversation | any user, with another active user | 400 (yourself), 404 (unknown user) |
-| Create a group | any user; the creator becomes `ADMIN` | 400 (no member, unknown users, > 50 members) |
-| Rename, add members, change roles, remove a member | group `ADMIN`s | **403** for members, 404 for outsiders |
+| Create a group | any user; the creator becomes `ADMIN` and the others are **invited** (§26.4) | 400 (no invitee, unknown users, > 50 members) |
+| Accept / decline an invitation | the invited user only | 404 for anyone else, 409 if already answered |
+| Rename, invite members, withdraw an invitation, change roles, remove a member | group `ADMIN`s | **403** for members, 404 for outsiders |
 | Demote the last admin | nobody | **409 `LAST_ADMIN`** |
 | Leave a group | any member. If the last admin leaves, the longest-standing member is promoted; when the last member leaves, the group is deleted | — |
 | See / vote in a group poll | current members of the group, **the author included** (a group decision) | 404 / 403 `NOT_GROUP_MEMBER` |
@@ -1661,6 +1668,72 @@ The evening edition is designed, not inverted. The page is espresso and sheets a
 5. **Groups:** create a group, add or remove a member from the details panel, and try the same actions as a non-admin (the server refuses them). The removed member's thread shows "You are no longer a member".
 6. **Group poll:** *Start a poll* from the group header, publish, vote from the card in the chat (the author can vote too), and follow the results live.
 7. **Themes and languages:** use the dateline controls or *Settings*. Reload: no flash. Sign in on another browser: the account's choices follow. In Arabic, check the mirrored layout on a phone-sized window.
+
+---
+
+## 26. Voting methods, scheduling, reminders, AI summaries and invitations
+
+Migrations `005_voting_methods_scheduling_summaries.sql` and `006_group_invitations.sql`.
+
+### 26.1 Multiple-choice and ranked-choice polls
+
+| Method | Ballot | Results |
+|---|---|---|
+| `SINGLE` (default) | one answer | votes per answer, % of ballots |
+| `MULTIPLE` | 1 to `maxChoices` answers (2–10, at most the number of answers) | ballots selecting each answer, **% of voters** (the total can exceed 100 %) |
+| `RANKED` | answers in order of preference; ranking only some of them is allowed | first preferences, plus the **instant-runoff** count round by round and the winner |
+
+* **One ballot per person, whatever the method.** A ballot is still one row in `votes`, so `UNIQUE (poll_id, user_id)` and the concurrency guarantees of §9 apply unchanged. Its answers go to `vote_choices (vote_id, poll_id, option_id, rank)`, with PK `(vote_id, option_id)` (an answer at most once), `UNIQUE (vote_id, rank)`, and two composite foreign keys that pin the same `poll_id` (a choice can only reference an answer of its ballot's poll). `votes.option_id` keeps the first choice. The migration copied every existing vote as a rank-1 choice.
+* **API:** `POST /polls/:id/votes` takes `{ optionIds: [...] }`. `{ optionId }` is still accepted for single choice. A ballot that doesn't match the method is refused with `400 INVALID_CHOICES`. Polls expose `votingMethod`, `maxChoices` and `myChoices`; results expose `method`, `rounds` and `winners`.
+* **Instant runoff** ([rankedChoice.ts](backend/src/modules/polls/rankedChoice.ts), a pure, unit-tested function):
+  * Each round, every ballot counts for its highest-ranked answer still in the race. An answer with more than half of the ballots still counting wins. Otherwise the weakest answer is eliminated and its ballots move on. A ballot with no answer left is "exhausted".
+  * Ties for last place are broken by fewer first preferences, then by fewer ballots mentioning the answer at any rank. Only answers identical on every criterion share the victory, so the count is always reproducible.
+* **Interface:** the poll form has a "Voting method" choice. The ballot shows checkboxes with a counter (multiple), or answers clicked in order with the rank printed in the box (ranked). Results add the winner and a round-by-round tally table.
+
+### 26.2 Scheduled opening and reminders
+
+* **Lifecycle:** `DRAFT → SCHEDULED → ACTIVE → CLOSED`. Publishing a poll whose `startsAt` is in the future sets `SCHEDULED`.
+  * Until it opens, only its author (and admins) can see it, and votes get `409 POLL_NOT_STARTED`.
+  * The author can delete it, or take it back to draft with `POST /polls/:id/unschedule` to edit it.
+  * CHECK constraints keep `starts_at < end_time` and require `starts_at` for `SCHEDULED`.
+* **The background job** (§11) now does three atomic `UPDATE … RETURNING` steps each tick: open due scheduled polls, close expired polls, send due reminders. Each step is safe with several instances and idempotent.
+  * When a poll opens (immediately or on schedule), a group poll is announced in its chat, and the invited voters of a private poll receive a `POLL_OPENED` notification.
+* **Reminders:** `remindBeforeMinutes` can be 15 min, 1 h, 3 h or 1 day before closing.
+  * It applies only to private and group polls (CHECK constraint), because public polls have no defined list of voters.
+  * At that time, eligible voters who **have not voted** get a `POLL_REMINDER` notification: invited voters, or the current group members (the author included).
+  * `reminder_sent_at` is set in the same statement that selects the poll, so the reminder is sent exactly once.
+  * A reminder longer than the voting window is refused at publication (`INVALID_REMINDER`).
+
+### 26.3 AI summary of the results
+
+* `GET /polls/:id/summary?locale=fr|en|ar` works only on a **closed** poll with at least one vote, for anyone who can see the poll.
+* The backend sends the model only the question and the final figures computed by PostgreSQL, including the runoff rounds for ranked polls. The prompt requires 2–4 factual sentences in the requested language: exact numbers, no invented causes, no opinion, and poll texts treated as data.
+* The output is validated like user input (JSON schema, length, control characters stripped).
+* Summaries are **cached** in `poll_summaries (poll_id, locale)`. Final results never change, so each language is generated once, and concurrent first requests store one row (`ON CONFLICT DO NOTHING`). Generation is limited to 10 per minute per user; cached reads are free.
+* **Interface:** an "Analysis" panel under the final results of a closed poll, in the reader's language. If AI is not configured on the server, the panel does not appear.
+
+### 26.4 Group invitations
+
+* Creating a group or "adding" people now sends **invitations**: nobody joins a group without consent.
+  * Each invitation is a `group_invitations` row (`PENDING → ACCEPTED | DECLINED | CANCELLED`, at most one pending per person and group through a partial unique index), plus a `GROUP_INVITE` notification pushed in real time.
+* **The invitee** sees the invitation at the top of *Messages* and in *Notices*, with **Accept / Decline**.
+  * `POST /invitations/:id/accept` makes them a member, caught up on history. `POST /invitations/:id/decline` refuses.
+  * Only the invitee can answer; anyone else gets 404. An invitation is answered once (`409 INVITATION_ANSWERED`).
+  * Until they accept, invitees cannot see the group, its messages or its polls.
+* **Group admins** see the pending invitations in the group panel and can withdraw them (`DELETE /conversations/:id/invitations/:invitationId`). People who declined can be invited again.
+
+### 26.5 Login with a username, precise validation messages
+
+* **Login** accepts an email **or** a username in one field (`identifier`; `email` is still accepted). Usernames cannot contain `@`, so the two are never ambiguous. The error is the same for an unknown account and a wrong password, and bcrypt always runs, so the endpoint cannot be used to find out which usernames exist.
+* **Field errors carry a stable `code`** when the backend knows the exact cause, for example `{ field: "voters", code: "SELF_INVITE" }` or `{ field: "voters", code: "UNKNOWN_VOTERS", params: { names } }`. The interface translates these codes exactly in French, English and Arabic: "You cannot invite yourself…" instead of a generic message. The poll form also refuses a self-invitation immediately, when the user clicks *Invite*.
+
+### 26.6 Tests
+
+`npm test` → **10 files, 120 tests**:
+
+* `votingMethods.test.ts` (14): instant-runoff units (majority, transfers, all-way tie settled by second preferences, exhausted ballots and true ties), multiple-choice limits and shares of voters, ranked count through the API with ballot order kept, legacy single-choice body, scheduled poll hidden then opened on time (idempotent), schedule validation and unscheduling, `POLL_OPENED` notifications, reminder only to non-voters and only once, reminder rules, AI summary cached per language with database figures sent to the model, summary visibility and `NO_VOTES`.
+* `invitations.test.ts` (6): invitation instead of membership, accept / decline / answer once, only the invitee answers, admin withdrawal, real-time `GROUP_INVITE`, group polls hidden from invitees, `SELF_INVITE` and `UNKNOWN_VOTERS` codes.
+* `auth.test.ts`: login by username, case-insensitive email, no username enumeration.
 
 ---
 

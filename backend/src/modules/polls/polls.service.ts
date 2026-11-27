@@ -5,11 +5,16 @@ import type { Queryable } from '../../db/pool';
 import { AppError, badRequest, forbidden, isPgError, notFound, PG_ERRORS } from '../../utils/errors';
 import { broadcastPollClosed, sendNotification } from '../../socket/realtime';
 import { postPollMessage } from '../messaging/messaging.service';
-import { insertClosureNotifications, toNotification } from '../notifications/notifications.repository';
+import {
+  insertClosureNotifications,
+  insertOpenedNotifications,
+  insertReminderNotifications,
+  toNotification,
+} from '../notifications/notifications.repository';
 import { findActiveUsersByIdentifiers } from '../users/users.repository';
 import type { PublicUser } from '../users/users.types';
 import * as repo from './polls.repository';
-import { isValidEndTime, type CreatePollInput, type ListPollsQuery, type UpdatePollInput } from './polls.schemas';
+import { crossFieldIssues, isValidEndTime, type CreatePollInput, type ListPollsQuery, type UpdatePollInput } from './polls.schemas';
 import type { Poll, PollResults, PollRow } from './polls.types';
 
 const isAdmin = (u: PublicUser) => u.role === 'admin';
@@ -43,7 +48,8 @@ export async function getPollForViewer(viewer: PublicUser, pollId: string): Prom
   const poll = await loadPoll(pollId, viewer);
   if (!poll) throw notFound('Sondage introuvable');
   const privileged = isOwner(viewer, poll) || isAdmin(viewer);
-  if (poll.status === 'DRAFT' && !privileged) throw notFound('Sondage introuvable');
+  // Drafts and scheduled polls are not public yet: only their owner (and admins) can see them.
+  if ((poll.status === 'DRAFT' || poll.status === 'SCHEDULED') && !privileged) throw notFound('Sondage introuvable');
   if (poll.access === 'PRIVATE' && !privileged && !(await repo.isInvitedVoter(pollId, viewer.id))) {
     throw notFound('Sondage introuvable');
   }
@@ -58,7 +64,7 @@ export async function getPollForViewer(viewer: PublicUser, pollId: string): Prom
 async function requireGroupMembership(db: Queryable, user: PublicUser, groupId: string | null | undefined) {
   if (!groupId || !(await repo.isGroupMember(groupId, user.id, db))) {
     const message = 'Vous devez faire partie du groupe pour lui adresser un sondage';
-    throw new AppError(400, 'NOT_GROUP_MEMBER', message, [{ field: 'groupId', message }]);
+    throw new AppError(400, 'NOT_GROUP_MEMBER', message, [{ field: 'groupId', code: 'NOT_GROUP_MEMBER', message }]);
   }
   return groupId;
 }
@@ -79,12 +85,12 @@ async function resolveVoters(tx: PoolClient, owner: PublicUser, identifiers: str
   const unknown = matches.filter((m) => !m.id).map((m) => m.identifier);
   if (unknown.length) {
     throw badRequest(`Utilisateur introuvable : ${unknown.join(', ')}`, [
-      { field: 'voters', message: `Utilisateur introuvable : ${unknown.join(', ')}` },
+      { field: 'voters', code: 'UNKNOWN_VOTERS', params: { names: unknown.join(', ') }, message: `Utilisateur introuvable : ${unknown.join(', ')}` },
     ]);
   }
   if (matches.some((m) => m.id === owner.id)) {
     const message = 'Vous ne pouvez pas vous inviter à votre propre sondage : le créateur ne vote pas';
-    throw badRequest(message, [{ field: 'voters', message }]);
+    throw badRequest(message, [{ field: 'voters', code: 'SELF_INVITE', message }]);
   }
   return [...new Set(matches.map((m) => m.id!))];
 }
@@ -101,6 +107,10 @@ export async function createPoll(user: PublicUser, input: CreatePollInput): Prom
       access: input.access,
       endTime: input.endTime,
       groupId: input.access === 'GROUP' ? await requireGroupMembership(tx, user, input.groupId) : null,
+      votingMethod: input.votingMethod,
+      maxChoices: input.votingMethod === 'MULTIPLE' ? (input.maxChoices ?? null) : null,
+      startsAt: input.startsAt ?? null,
+      remindBeforeMinutes: input.access === 'PUBLIC' ? null : (input.remindBeforeMinutes ?? null),
     });
     await repo.insertOptions(tx, pollId, input.options);
     if (input.access === 'PRIVATE') await repo.replaceVoters(tx, pollId, await resolveVoters(tx, user, input.voters));
@@ -112,7 +122,9 @@ export async function createPoll(user: PublicUser, input: CreatePollInput): Prom
 /** Locks the poll and checks ownership; shared by update/publish/delete. */
 async function lockOwnedPoll(tx: PoolClient, user: PublicUser, pollId: string, allowAdmin: boolean) {
   const poll = await repo.lockPoll(tx, pollId, 'UPDATE');
-  if (!poll || (poll.status === 'DRAFT' && !isOwner(user, poll) && !isAdmin(user))) throw notFound('Sondage introuvable');
+  if (!poll || ((poll.status === 'DRAFT' || poll.status === 'SCHEDULED') && !isOwner(user, poll) && !isAdmin(user))) {
+    throw notFound('Sondage introuvable');
+  }
   if (!isOwner(user, poll) && !(allowAdmin && isAdmin(user))) throw forbidden("Vous n'êtes pas le créateur de ce sondage");
   return poll;
 }
@@ -126,7 +138,25 @@ export async function updatePoll(user: PublicUser, pollId: string, input: Update
     }
     const access = input.access ?? poll.access;
     const groupId = access === 'GROUP' ? await requireGroupMembership(tx, user, input.groupId ?? poll.group_id) : null;
-    await repo.updatePollFields(tx, pollId, { ...input, groupId });
+    // Cross-field rules are checked on the poll as it will be after the update.
+    const votingMethod = input.votingMethod ?? poll.voting_method;
+    const merged = {
+      options: input.options ?? undefined,
+      votingMethod,
+      maxChoices: votingMethod === 'MULTIPLE' ? (input.maxChoices !== undefined ? input.maxChoices : poll.max_choices) : null,
+      startsAt: input.startsAt !== undefined ? input.startsAt : poll.starts_at,
+      endTime: input.endTime ?? poll.end_time,
+      access,
+      remindBeforeMinutes: access === 'PUBLIC' ? null : input.remindBeforeMinutes !== undefined ? input.remindBeforeMinutes : poll.remind_before_minutes,
+    };
+    const issues = crossFieldIssues(merged);
+    if (issues.length) throw badRequest(issues[0].message, issues.map((i) => ({ field: i.path, code: i.code, message: i.message })));
+    await repo.updatePollFields(tx, pollId, {
+      ...input,
+      groupId,
+      maxChoices: merged.maxChoices,
+      remindBeforeMinutes: merged.remindBeforeMinutes,
+    });
     if (input.options) await repo.replaceOptions(tx, pollId, input.options);
     // Only a private poll has an invited voters list; it is kept unless a new one is sent.
     if (access !== 'PRIVATE') await repo.replaceVoters(tx, pollId, []);
@@ -135,28 +165,107 @@ export async function updatePoll(user: PublicUser, pollId: string, input: Update
   return (await loadPoll(pollId, user))!;
 }
 
-/** DRAFT → ACTIVE */
+/**
+ * DRAFT → ACTIVE, or DRAFT → SCHEDULED when the poll has a future start time
+ * (the background job opens it at that time, see activateScheduledPolls).
+ */
 export async function publishPoll(user: PublicUser, pollId: string): Promise<Poll> {
-  await withTransaction(async (tx) => {
+  const opened = await withTransaction(async (tx) => {
     const poll = await lockOwnedPoll(tx, user, pollId, false);
     if (poll.status !== 'DRAFT') throw new AppError(409, 'POLL_ALREADY_PUBLISHED', 'Ce sondage est déjà publié');
     // A draft may have been saved long ago: its end time must still be valid now.
     if (!isValidEndTime(poll.end_time)) {
       throw new AppError(400, 'INVALID_END_TIME', 'La date de clôture doit être au moins 1 minute dans le futur. Modifiez-la avant de publier.');
     }
-    if ((await repo.countOptions(tx, pollId)) < 2) {
+    const optionCount = await repo.countOptions(tx, pollId);
+    if (optionCount < 2) {
       throw new AppError(400, 'NOT_ENOUGH_OPTIONS', 'Un sondage doit contenir au moins 2 propositions');
+    }
+    if (poll.voting_method === 'MULTIPLE' && (poll.max_choices ?? 0) > optionCount) {
+      throw new AppError(400, 'VALIDATION_ERROR', 'Le nombre de choix ne peut pas dépasser le nombre de propositions');
     }
     if (poll.access === 'PRIVATE' && (await repo.countVoters(tx, pollId)) === 0) {
       throw new AppError(400, 'NO_VOTERS', 'Un sondage privé doit avoir au moins un votant invité');
     }
     if (poll.access === 'GROUP') await requireGroupMembership(tx, user, poll.group_id);
+
+    const scheduled = poll.starts_at !== null && poll.starts_at.getTime() > Date.now();
+    const opensAt = scheduled ? poll.starts_at!.getTime() : Date.now();
+    if (poll.remind_before_minutes && poll.end_time.getTime() - opensAt <= poll.remind_before_minutes * 60_000) {
+      throw new AppError(400, 'INVALID_REMINDER', 'Le rappel doit tomber après l’ouverture du scrutin : choisissez un délai plus court');
+    }
+    if (scheduled) {
+      await repo.setPollStatus(tx, pollId, 'SCHEDULED');
+      return null;
+    }
     await repo.setPollActive(tx, pollId);
+    return { poll, notifications: await insertOpenedNotifications(tx, [pollId]) };
   });
-  const published = (await loadPoll(pollId, user))!;
-  // After COMMIT: the poll is announced in the group's chat.
-  if (published.group) await postPollMessage(user, published.group.id, published.id, published.question);
-  return published;
+  if (opened) await afterPollsOpened([opened.poll], opened.notifications);
+  return (await loadPoll(pollId, user))!;
+}
+
+/** SCHEDULED → DRAFT: the author takes a scheduled poll back to edit it (nobody could vote yet). */
+export async function unschedulePoll(user: PublicUser, pollId: string): Promise<Poll> {
+  await withTransaction(async (tx) => {
+    const poll = await lockOwnedPoll(tx, user, pollId, false);
+    if (poll.status !== 'SCHEDULED') throw new AppError(409, 'POLL_NOT_SCHEDULED', "Ce sondage n'est pas programmé");
+    await repo.setPollStatus(tx, pollId, 'DRAFT');
+  });
+  return (await loadPoll(pollId, user))!;
+}
+
+/**
+ * After a poll opens (immediately or at its scheduled time), once committed:
+ * a group poll is announced in the group's chat, and the invited voters of a
+ * private poll get a notification.
+ */
+async function afterPollsOpened(polls: PollRow[], notifications: Awaited<ReturnType<typeof insertOpenedNotifications>>) {
+  for (const poll of polls) {
+    if (poll.group_id) {
+      await postPollMessage(poll.created_by, poll.group_id, poll.id, poll.question).catch((err) =>
+        logger.error({ err, pollId: poll.id }, 'Failed to announce the group poll'),
+      );
+    }
+  }
+  for (const n of notifications) sendNotification(n.user_id, toNotification(n));
+}
+
+/**
+ * Background job: opens every SCHEDULED poll whose start time has come.
+ * The UPDATE … RETURNING is atomic, so each poll is opened (and announced) once.
+ */
+export async function activateScheduledPolls(): Promise<string[]> {
+  const { polls, notifications } = await withTransaction(async (tx) => {
+    const { rows } = await tx.query<PollRow>(
+      `UPDATE polls SET status = 'ACTIVE', published_at = now()
+        WHERE status = 'SCHEDULED' AND starts_at <= now()
+        RETURNING *`,
+    );
+    return { polls: rows, notifications: rows.length ? await insertOpenedNotifications(tx, rows.map((p) => p.id)) : [] };
+  });
+  await afterPollsOpened(polls, notifications);
+  return polls.map((p) => p.id);
+}
+
+/**
+ * Background job: reminds the eligible voters who have not voted yet, once,
+ * `remind_before_minutes` before the end. reminder_sent_at is set in the same
+ * atomic UPDATE that selects the polls, so a reminder is never sent twice,
+ * even with several server instances.
+ */
+export async function sendDueReminders(): Promise<string[]> {
+  const notifications = await withTransaction(async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `UPDATE polls SET reminder_sent_at = now()
+        WHERE status = 'ACTIVE' AND remind_before_minutes IS NOT NULL AND reminder_sent_at IS NULL
+          AND end_time > now() AND end_time - make_interval(mins => remind_before_minutes) <= now()
+        RETURNING id`,
+    );
+    return rows.length ? insertReminderNotifications(tx, rows.map((r) => r.id)) : [];
+  });
+  for (const n of notifications) sendNotification(n.user_id, toNotification(n));
+  return [...new Set(notifications.map((n) => n.poll_id!))];
 }
 
 /** ACTIVE → CLOSED before the end time (owner or admin). */
@@ -216,7 +325,8 @@ async function afterPollsClosed({ polls, notifications }: Awaited<ReturnType<typ
 export async function deletePoll(user: PublicUser, pollId: string): Promise<void> {
   await withTransaction(async (tx) => {
     const poll = await lockOwnedPoll(tx, user, pollId, true);
-    if (poll.status !== 'DRAFT' && !isAdmin(user)) {
+    // Drafts and scheduled polls have no votes yet: their author may delete them.
+    if (poll.status !== 'DRAFT' && poll.status !== 'SCHEDULED' && !isAdmin(user)) {
       throw new AppError(409, 'POLL_NOT_DELETABLE', 'Un sondage publié ne peut être supprimé que par un administrateur');
     }
     await repo.deletePoll(tx, pollId);
@@ -257,7 +367,9 @@ export async function buildResults(
     status: poll.status,
     totalVotes: stats.totalVotes,
     visible,
+    method: stats.method,
     options: visible ? stats.options : [],
+    ...(stats.method === 'RANKED' && { rounds: visible ? stats.rounds : [], winners: visible ? stats.winners : [] }),
     computedAt: new Date().toISOString(),
   };
 }

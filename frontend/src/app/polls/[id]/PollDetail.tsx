@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { AiSummary } from "@/components/AiSummary";
 import { Ballot } from "@/components/Ballot";
 import { Countdown } from "@/components/Countdown";
 import { DoubleRule } from "@/components/decor";
@@ -25,7 +26,7 @@ export function PollDetail({ id }: { id: string }) {
   const router = useRouter();
   const [poll, setPoll] = useState<Poll | null>(null);
   const [loadError, setLoadError] = useState<ApiError | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
   const [voting, setVoting] = useState(false);
   const [voteError, setVoteError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -64,15 +65,15 @@ export function PollDetail({ id }: { id: string }) {
   const isOwner = user?.id === poll.creator.id;
   const isAdmin = user?.role === "admin";
   // Edition row only when at least one action is actually available.
-  const canEdit = (poll.status === "DRAFT" && isOwner) || (poll.status === "ACTIVE" && (isOwner || isAdmin)) || isAdmin;
+  const canEdit = ((poll.status === "DRAFT" || poll.status === "SCHEDULED") && isOwner) || (poll.status === "ACTIVE" && (isOwner || isAdmin)) || isAdmin;
 
   const submitVote = async () => {
-    if (!selected) return;
+    if (selected.length === 0) return;
     setVoting(true);
     setVoteError(null);
     try {
       const data = await api.vote(poll.id, selected);
-      setPoll({ ...poll, myVoteOptionId: selected, totalVotes: data.results.totalVotes });
+      setPoll({ ...poll, myVoteOptionId: selected[0], myChoices: selected, totalVotes: data.results.totalVotes });
       setResults(data.results);
       toast(t("pollDetail.voteCast"), "success");
     } catch (e) {
@@ -118,6 +119,11 @@ export function PollDetail({ id }: { id: string }) {
           <StatusBadge status={poll.status} isOpen={poll.isOpen} />
           <Badge>{poll.creationMode === "AI" ? t("poll.aiWritten") : t("poll.manualWritten")}</Badge>
           <Badge>{poll.resultsVisibility === "LIVE" ? t("poll.liveResults") : t("poll.afterCloseResults")}</Badge>
+          {poll.votingMethod !== "SINGLE" && (
+            <Badge className="text-ink">
+              {poll.votingMethod === "MULTIPLE" ? t("poll.methodMultipleMax", { count: poll.maxChoices ?? 2 }) : t("poll.methodRANKED")}
+            </Badge>
+          )}
           {poll.access === "PRIVATE" && <Badge className="text-ink">{t("poll.privateLong")}</Badge>}
           {poll.group && <Badge className="text-accent">{t("poll.groupBadge", { name: poll.group.name })}</Badge>}
           {poll.status !== "DRAFT" && <LiveIndicator connected={connected} />}
@@ -146,6 +152,8 @@ export function PollDetail({ id }: { id: string }) {
         <div>
           {poll.status === "CLOSED" && poll.closedAt ? (
             <span className="font-mono text-sm text-ink">{t("pollDetail.closedOn", { date: fmt.shortDate(poll.closedAt), time: fmt.time(poll.closedAt) })}</span>
+          ) : poll.status === "SCHEDULED" && poll.startsAt ? (
+            <span className="font-mono text-sm text-accent">{t("pollDetail.opensOn", { date: fmt.shortDate(poll.startsAt), time: fmt.time(poll.startsAt) })}</span>
           ) : poll.status === "ACTIVE" ? (
             <Countdown endTime={poll.endTime} startTime={poll.publishedAt} onExpire={() => setPoll((p) => (p ? { ...p, isOpen: false } : p))} />
           ) : (
@@ -174,7 +182,17 @@ export function PollDetail({ id }: { id: string }) {
               {t("poll.close")}
             </Button>
           )}
-          {(poll.status === "DRAFT" || isAdmin) && (
+          {poll.status === "SCHEDULED" && isOwner && (
+            <Button
+              variant="secondary"
+              size="sm"
+              loading={busy}
+              onClick={() => runAction(async () => setPoll((await api.unschedulePoll(poll.id)).poll), t("poll.unscheduled"))}
+            >
+              {t("poll.unschedule")}
+            </Button>
+          )}
+          {(poll.status === "DRAFT" || poll.status === "SCHEDULED" || isAdmin) && (
             <Button
               variant="danger"
               size="sm"
@@ -204,9 +222,13 @@ export function PollDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {poll.status === "DRAFT" ? (
+      {poll.status === "DRAFT" || poll.status === "SCHEDULED" ? (
         <div className="mt-10 max-w-2xl">
-          <Alert kind="info">{t("pollDetail.draftNotice")}</Alert>
+          <Alert kind="info">
+            {poll.status === "SCHEDULED" && poll.startsAt
+              ? t("pollDetail.scheduledNotice", { date: fmt.shortDate(poll.startsAt), time: fmt.time(poll.startsAt) })
+              : t("pollDetail.draftNotice")}
+          </Alert>
           <ol className="mt-8 border-t border-ink">
             {poll.options.map((o, i) => (
               <li key={o.id} className="flex gap-4 border-b border-rule py-3 font-serif text-lg">
@@ -224,14 +246,15 @@ export function PollDetail({ id }: { id: string }) {
               <SectionTitle>
                 <span id="vote">{t("pollDetail.yourVote")}</span>
               </SectionTitle>
-              <Ballot poll={poll} isOwner={isOwner} selected={selected} onSelect={setSelected} onSubmit={submitVote} voting={voting} error={voteError} />
+              <Ballot poll={poll} isOwner={isOwner} selected={selected} onChange={setSelected} onSubmit={submitVote} voting={voting} error={voteError} />
             </section>
             <section className="lg:col-span-5 lg:border-s lg:border-rule lg:ps-10" aria-labelledby="resultats">
               <SectionTitle>
                 <span id="resultats">{poll.status === "CLOSED" ? t("pollDetail.finalResults") : t("pollDetail.counting")}</span>
               </SectionTitle>
               {roomError && <div className="mb-4"><Alert kind="warning">{t("pollDetail.roomError")}</Alert></div>}
-              {results ? <ResultsBars results={results} myVoteOptionId={poll.myVoteOptionId} /> : <PageLoader label={t("pollDetail.countingInProgress")} />}
+              {results ? <ResultsBars results={results} myVoteOptionId={poll.myVoteOptionId} myChoices={poll.myChoices} /> : <PageLoader label={t("pollDetail.countingInProgress")} />}
+              {poll.status === "CLOSED" && poll.totalVotes > 0 && <div className="mt-8"><AiSummary pollId={poll.id} /></div>}
             </section>
           </div>
         </>

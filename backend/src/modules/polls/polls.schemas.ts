@@ -36,6 +36,39 @@ const endTime = z.coerce
 
 const access = z.enum(['PUBLIC', 'PRIVATE', 'GROUP']);
 
+const votingMethod = z.enum(['SINGLE', 'MULTIPLE', 'RANKED']);
+const maxChoices = z.coerce.number().int().min(2, 'Au moins 2 choix').max(10, 'Au plus 10 choix').nullable();
+
+/** Scheduled opening: from 1 minute to 1 year from now. */
+const startsAt = z.coerce
+  .date({ error: "La date d'ouverture est invalide" })
+  .refine((d) => isValidEndTime(d), { message: "L'ouverture doit être comprise entre 1 minute et 1 an à partir de maintenant" })
+  .nullable();
+
+/** Reminder lead time, in minutes (5 min to 7 days). */
+const remindBeforeMinutes = z.coerce.number().int().min(5).max(10080).nullable();
+
+/** Rules that involve several fields; also re-checked by the service on the stored poll. */
+export function crossFieldIssues(d: {
+  options?: string[]; votingMethod?: string; maxChoices?: number | null; startsAt?: Date | null; endTime?: Date;
+  access?: string; remindBeforeMinutes?: number | null;
+}): { path: string; message: string; code: string }[] {
+  const issues: { path: string; message: string; code: string }[] = [];
+  if (d.votingMethod === 'MULTIPLE' && !d.maxChoices) {
+    issues.push({ path: 'maxChoices', code: 'MAX_CHOICES_REQUIRED', message: 'Indiquez le nombre maximal de choix' });
+  }
+  if (d.votingMethod === 'MULTIPLE' && d.maxChoices && d.options && d.maxChoices > d.options.length) {
+    issues.push({ path: 'maxChoices', code: 'MAX_CHOICES_TOO_MANY', message: 'Le nombre de choix ne peut pas dépasser le nombre de propositions' });
+  }
+  if (d.startsAt && d.endTime && d.endTime.getTime() - d.startsAt.getTime() < 60_000) {
+    issues.push({ path: 'endTime', code: 'END_BEFORE_START', message: "La clôture doit suivre l'ouverture d'au moins 1 minute" });
+  }
+  if (d.remindBeforeMinutes && d.access === 'PUBLIC') {
+    issues.push({ path: 'remindBeforeMinutes', code: 'REMINDER_PUBLIC', message: 'Les rappels sont réservés aux sondages privés et de groupe' });
+  }
+  return issues;
+}
+
 /** Group conversation of a GROUP poll (the author must be one of its members). */
 const groupId = z.uuid({ message: 'Groupe invalide' }).nullable();
 
@@ -55,7 +88,14 @@ export const createPollSchema = z.object({
   access: access.default('PUBLIC'),
   voters: voters.default([]),
   groupId: groupId.optional(),
-}).refine((d) => d.access !== 'GROUP' || !!d.groupId, { path: ['groupId'], message: 'Choisissez le groupe concerné' });
+  votingMethod: votingMethod.default('SINGLE'),
+  maxChoices: maxChoices.optional(),
+  startsAt: startsAt.optional(),
+  remindBeforeMinutes: remindBeforeMinutes.optional(),
+}).refine((d) => d.access !== 'GROUP' || !!d.groupId, { path: ['groupId'], message: 'Choisissez le groupe concerné' })
+  .superRefine((d, ctx) => {
+    for (const i of crossFieldIssues(d)) ctx.addIssue({ code: 'custom', path: [i.path], message: i.message, params: { code: i.code } });
+  });
 
 export const updatePollSchema = z
   .object({
@@ -67,6 +107,10 @@ export const updatePollSchema = z
     access: access.optional(),
     voters: voters.optional(),
     groupId: groupId.optional(),
+    votingMethod: votingMethod.optional(),
+    maxChoices: maxChoices.optional(),
+    startsAt: startsAt.optional(),
+    remindBeforeMinutes: remindBeforeMinutes.optional(),
   })
   .refine((d) => Object.values(d).some((v) => v !== undefined), { message: 'Aucune modification fournie' });
 
@@ -78,7 +122,7 @@ export const listPollsQuerySchema = z.object({
 });
 
 export const myPollsQuerySchema = z.object({
-  status: z.enum(['DRAFT', 'ACTIVE', 'CLOSED']).optional(),
+  status: z.enum(['DRAFT', 'SCHEDULED', 'ACTIVE', 'CLOSED']).optional(),
 });
 
 export type CreatePollInput = z.infer<typeof createPollSchema>;

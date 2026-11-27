@@ -70,11 +70,11 @@ async function seedConversations(tx: PoolClient, ids: Record<string, string>) {
     await tx.query('UPDATE conversations SET last_message_at = now() - make_interval(mins => $2) WHERE id = $1', [conversationId, minutesAgo]);
   };
 
-  const pollFor = async (groupId: string, by: string, question: string, options: string[], hours: number) => {
+  const pollFor = async (groupId: string, by: string, question: string, options: string[], hours: number, method = 'SINGLE') => {
     const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO polls (question, created_by, status, results_visibility, access, group_id, end_time, published_at)
-       VALUES ($1, $2, 'ACTIVE', 'LIVE', 'GROUP', $3, now() + make_interval(hours => $4), now()) RETURNING id`,
-      [question, ids[by], groupId, hours],
+      `INSERT INTO polls (question, created_by, status, results_visibility, access, group_id, end_time, published_at, voting_method, remind_before_minutes)
+       VALUES ($1, $2, 'ACTIVE', 'LIVE', 'GROUP', $3, now() + make_interval(hours => $4), now(), $5, 60) RETURNING id`,
+      [question, ids[by], groupId, hours, method],
     );
     await tx.query(
       `INSERT INTO poll_options (poll_id, option_text, position)
@@ -101,7 +101,8 @@ async function seedConversations(tx: PoolClient, ids: Record<string, string>) {
   const friends = await group('Les amis du week-end', 'alice', ['bob']);
   await say(friends, 'alice', 'On fait quoi samedi ? Il paraît qu’il fera beau.', 50);
   await say(friends, 'bob', 'Je suis partant pour sortir de la ville !', 45);
-  const weekend = await pollFor(friends, 'alice', 'Où allons-nous ce week-end ?', ['La plage à Bouznika', 'Randonnée à Ifrane', 'La médina de Fès'], 36);
+  // Ranked choice: everyone orders the destinations; the runoff decides.
+  const weekend = await pollFor(friends, 'alice', 'Où allons-nous ce week-end ?', ['La plage à Bouznika', 'Randonnée à Ifrane', 'La médina de Fès'], 36, 'RANKED');
   await say(friends, 'alice', 'Où allons-nous ce week-end ?', 40, weekend);
 
   // A work team deciding about the cafeteria.

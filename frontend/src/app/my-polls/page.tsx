@@ -12,6 +12,7 @@ import type { Poll, PollStatus } from "@/types";
 const tabs: { value: PollStatus | undefined; key: string }[] = [
   { value: undefined, key: "all" },
   { value: "DRAFT", key: "drafts" },
+  { value: "SCHEDULED", key: "scheduled" },
   { value: "ACTIVE", key: "open" },
   { value: "CLOSED", key: "archives" },
 ];
@@ -84,6 +85,16 @@ export default function MyPollsPage() {
                       <ButtonLink href={`/polls/${p.id}/edit`} variant="secondary" size="sm">{t("poll.edit")}</ButtonLink>
                       <Button size="sm" onClick={() => act(() => api.publishPoll(p.id), t("poll.published"))}>{t("poll.publish")}</Button>
                       <Button variant="danger" size="sm" onClick={() => confirm(t("poll.confirmDeleteDraft")) && act(() => api.deletePoll(p.id), t("poll.draftDeleted"))}>
+                        {t("poll.delete")}
+                      </Button>
+                    </>
+                  )}
+                  {p.status === "SCHEDULED" && (
+                    <>
+                      <Button variant="secondary" size="sm" onClick={() => act(() => api.unschedulePoll(p.id), t("poll.unscheduled"))}>
+                        {t("poll.unschedule")}
+                      </Button>
+                      <Button variant="danger" size="sm" onClick={() => confirm(t("poll.confirmDelete")) && act(() => api.deletePoll(p.id), t("poll.deleted"))}>
                         {t("poll.delete")}
                       </Button>
                     </>

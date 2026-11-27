@@ -234,8 +234,16 @@ export const openApiDocument = {
     '/auth/login': {
       post: {
         tags: ['Auth'],
-        summary: 'Log in (sets the httpOnly cookie)',
-        requestBody: body({ type: 'object', required: ['email', 'password'], properties: { email: { type: 'string' }, password: { type: 'string' } } }),
+        summary: 'Log in with an email or a username (sets the httpOnly cookie)',
+        requestBody: body({
+          type: 'object',
+          required: ['password'],
+          properties: {
+            identifier: { type: 'string', description: 'Email or username' },
+            email: { type: 'string', description: 'Legacy alias of identifier' },
+            password: { type: 'string' },
+          },
+        }),
         responses: { 200: ok('OK', { user: ref('User'), token: { type: 'string' } }), 400: E[400], 401: err('Invalid credentials'), 403: err('Account disabled') },
       },
     },
@@ -372,7 +380,13 @@ export const openApiDocument = {
         security: secured,
         summary: 'Vote (once per poll; never on your own poll; PRIVATE polls: invited voters only)',
         parameters: idParam,
-        requestBody: body({ type: 'object', required: ['optionId'], properties: { optionId: { type: 'string', format: 'uuid' } } }),
+        requestBody: body({
+          type: 'object',
+          properties: {
+            optionIds: { type: 'array', items: { type: 'string', format: 'uuid' }, description: 'SINGLE: 1 · MULTIPLE: 1..maxChoices · RANKED: in order of preference' },
+            optionId: { type: 'string', format: 'uuid', description: 'Legacy single-choice form' },
+          },
+        }),
         responses: {
           201: ok('Vote recorded', { vote: { type: 'object' }, results: ref('Results') }),
           400: err('VALIDATION_ERROR / INVALID_OPTION'),
@@ -555,6 +569,41 @@ export const openApiDocument = {
         parameters: idParam,
         requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { seq: { type: 'integer' } } } } } },
         responses: { 200: ok('OK', { lastReadSeq: { type: 'integer' } }), 404: E[404] },
+      },
+    },
+    '/polls/{id}/unschedule': {
+      post: { tags: ['Polls'], security: secured, summary: 'SCHEDULED → DRAFT (author)', parameters: idParam, responses: { 200: ok('OK', { poll: ref('Poll') }), 403: E[403], 409: E[409] } },
+    },
+    '/polls/{id}/summary': {
+      get: {
+        tags: ['AI'],
+        security: secured,
+        summary: 'AI summary of a CLOSED poll in the reader’s language (generated once per language, then cached)',
+        parameters: [...idParam, { name: 'locale', in: 'query', schema: { enum: ['fr', 'en', 'ar'], default: 'fr' } }],
+        responses: {
+          200: ok('OK', { summary: { type: 'object', properties: { pollId: { type: 'string' }, locale: { type: 'string' }, summary: { type: 'string' }, model: { type: 'string' }, createdAt: { type: 'string' } } } }),
+          404: E[404],
+          409: err('POLL_NOT_CLOSED / NO_VOTES'),
+          503: err('AI_NOT_CONFIGURED / AI_UNAVAILABLE'),
+        },
+      },
+    },
+    '/invitations': {
+      get: { tags: ['Messaging'], security: secured, summary: 'My pending group invitations', responses: { 200: ok('OK', { invitations: { type: 'array', items: { type: 'object' } } }), 401: E[401] } },
+    },
+    '/invitations/{id}/accept': {
+      post: { tags: ['Messaging'], security: secured, summary: 'Accept: become a member of the group', parameters: idParam, responses: { 200: ok('OK', { conversation: ref('Conversation') }), 404: E[404], 409: err('INVITATION_ANSWERED / GROUP_FULL') } },
+    },
+    '/invitations/{id}/decline': {
+      post: { tags: ['Messaging'], security: secured, summary: 'Decline an invitation', parameters: idParam, responses: { 200: ok('OK', { declined: { type: 'boolean' } }), 404: E[404], 409: err('INVITATION_ANSWERED') } },
+    },
+    '/conversations/{id}/invitations/{invitationId}': {
+      delete: {
+        tags: ['Messaging'],
+        security: secured,
+        summary: 'Withdraw a pending invitation (group admins)',
+        parameters: [...idParam, { name: 'invitationId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: { 200: ok('OK', { conversation: ref('Conversation') }), 403: E[403], 404: E[404] },
       },
     },
     '/conversations/{id}/polls': {

@@ -1,9 +1,14 @@
 import { env } from '../config/env';
 import { logger } from '../config/logger';
-import { closeExpiredPolls } from '../modules/polls/polls.service';
+import { activateScheduledPolls, closeExpiredPolls, sendDueReminders } from '../modules/polls/polls.service';
 
 /**
- * Background job that closes expired polls every POLL_CLOSER_INTERVAL_MS.
+ * Background job, every POLL_CLOSER_INTERVAL_MS:
+ *  1. opens scheduled polls whose start time has come;
+ *  2. closes expired polls;
+ *  3. sends the reminders that are due.
+ * Each step is an atomic UPDATE … RETURNING, so it is safe to run on
+ * several instances and idempotent across runs.
  *
  * This job is about *state and notifications*. It is NOT what prevents late
  * votes: every vote independently compares end_time with now() in the
@@ -17,8 +22,12 @@ export function startPollCloser(intervalMs = env.POLL_CLOSER_INTERVAL_MS) {
     if (running) return; // never overlap two runs if one is slow
     running = true;
     try {
+      const opened = await activateScheduledPolls();
+      if (opened.length) logger.info({ count: opened.length }, 'Scheduled polls opened');
       const closed = await closeExpiredPolls();
       if (closed.length) logger.info({ count: closed.length }, 'Expired polls closed');
+      const reminded = await sendDueReminders();
+      if (reminded.length) logger.info({ count: reminded.length }, 'Poll reminders sent');
     } catch (err) {
       logger.error({ err }, 'Poll closer run failed');
     } finally {

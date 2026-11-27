@@ -1,6 +1,7 @@
 import { pool, withTransaction, type Queryable } from '../../db/pool';
 import { isOnline } from '../../socket/presence';
-import { sendToUsers } from '../../socket/realtime';
+import { sendNotification, sendToUsers } from '../../socket/realtime';
+import { findNotificationsByIds, toNotification } from '../notifications/notifications.repository';
 import { AppError, badRequest, forbidden, notFound } from '../../utils/errors';
 import { createUserRateLimiter } from '../../utils/rateLimiter';
 import type { PublicUser } from '../users/users.types';
@@ -14,7 +15,9 @@ import type { Conversation, MemberRole, Message } from './messaging.types';
  *    everyone else it does not exist (404, its existence is not revealed);
  *    the platform "admin" role grants NO access to private conversations;
  *  - only members can send, and the sender is always the authenticated user;
- *  - only group ADMINs can rename a group, add or remove members, change roles;
+ *  - only group ADMINs can rename a group, invite or remove members, change roles;
+ *  - nobody is added to a group without consent: people are INVITED and
+ *    become members only when they accept (only the invited user can answer);
  *  - any member can leave a group; direct conversations have fixed members.
  */
 
@@ -112,15 +115,75 @@ export async function openDirect(user: PublicUser, otherId: string) {
   return { conversation: await getConversation(user, id), created };
 }
 
+/** Pushes freshly created notifications (invitations) to their recipients, after COMMIT. */
+async function pushNotifications(created: { id: string }[]) {
+  for (const n of await findNotificationsByIds(created.map((c) => c.id))) sendNotification(n.user_id, toNotification(n));
+}
+
+/** Creates a group with its creator as ADMIN, and invites the people chosen. */
 export async function createGroup(user: PublicUser, input: { name: string; memberIds: string[] }) {
-  const id = await withTransaction(async (tx) => {
-    const memberIds = await resolveUsers(tx, user, input.memberIds);
-    if (memberIds.length === 0) throw badRequest('Ajoutez au moins un membre');
-    if (memberIds.length + 1 > GROUP_MAX_MEMBERS) throw badRequest(`Un groupe compte au plus ${GROUP_MAX_MEMBERS} membres`);
-    return repo.insertGroup(tx, { name: input.name, creatorId: user.id, memberIds });
+  const { id, notifications } = await withTransaction(async (tx) => {
+    const invitees = await resolveUsers(tx, user, input.memberIds);
+    if (invitees.length === 0) throw badRequest('Invitez au moins une personne');
+    if (invitees.length + 1 > GROUP_MAX_MEMBERS) throw badRequest(`Un groupe compte au plus ${GROUP_MAX_MEMBERS} membres`);
+    const id = await repo.insertGroup(tx, { name: input.name, creatorId: user.id });
+    return { id, notifications: await repo.insertInvitations(tx, id, user.id, invitees) };
   });
-  notifyUpdated(await repo.listMemberIds(id), id);
+  notifyUpdated([user.id], id);
+  await pushNotifications(notifications);
   return getConversation(user, id);
+}
+
+// ---------------------------------------------------------------------
+// Invitations (answered by the invited user only)
+// ---------------------------------------------------------------------
+
+export const listInvitations = (user: PublicUser) => repo.listPendingInvitations(user.id);
+
+async function lockOwnInvitation(tx: Queryable, user: PublicUser, invitationId: string) {
+  const invitation = await repo.lockInvitation(tx, invitationId);
+  // Someone else's invitation does not exist for you.
+  if (!invitation || invitation.user_id !== user.id) throw notFound('Invitation introuvable');
+  if (invitation.status !== 'PENDING') throw new AppError(409, 'INVITATION_ANSWERED', 'Cette invitation a déjà reçu une réponse');
+  return invitation;
+}
+
+/** Accepting makes the user a member (caught up: earlier history visible, not counted unread). */
+export async function acceptInvitation(user: PublicUser, invitationId: string) {
+  const conversationId = await withTransaction(async (tx) => {
+    const invitation = await lockOwnInvitation(tx, user, invitationId);
+    await repo.lockConversation(tx, invitation.conversation_id);
+    if ((await repo.countMembers(tx, invitation.conversation_id)).total >= GROUP_MAX_MEMBERS) {
+      throw new AppError(409, 'GROUP_FULL', `Ce groupe a atteint ${GROUP_MAX_MEMBERS} membres`);
+    }
+    await repo.insertMembers(tx, invitation.conversation_id, [user.id]);
+    await repo.respondToInvitation(tx, invitationId, 'ACCEPTED');
+    return invitation.conversation_id;
+  });
+  notifyUpdated(await repo.listMemberIds(conversationId), conversationId);
+  return { conversation: await getConversation(user, conversationId) };
+}
+
+export async function declineInvitation(user: PublicUser, invitationId: string) {
+  const conversationId = await withTransaction(async (tx) => {
+    const invitation = await lockOwnInvitation(tx, user, invitationId);
+    await repo.respondToInvitation(tx, invitationId, 'DECLINED');
+    return invitation.conversation_id;
+  });
+  notifyUpdated(await repo.listMemberIds(conversationId), conversationId); // the pending list changed
+  return { declined: true };
+}
+
+/** A group admin withdraws a pending invitation. */
+export async function cancelInvitation(user: PublicUser, conversationId: string, invitationId: string) {
+  await withTransaction(async (tx) => {
+    await requireGroupAdmin(user, conversationId, tx);
+    const invitation = await repo.lockInvitation(tx, invitationId);
+    if (!invitation || invitation.conversation_id !== conversationId || invitation.status !== 'PENDING') throw notFound('Invitation introuvable');
+    await repo.respondToInvitation(tx, invitationId, 'CANCELLED');
+  });
+  notifyUpdated(await repo.listMemberIds(conversationId), conversationId);
+  return getConversation(user, conversationId);
 }
 
 // ---------------------------------------------------------------------
@@ -136,17 +199,23 @@ export async function renameGroup(user: PublicUser, conversationId: string, name
   return getConversation(user, conversationId);
 }
 
+/** Invites people to a group (group admins). Members and people already invited are skipped. */
 export async function addMembers(user: PublicUser, conversationId: string, userIds: string[]) {
-  const added = await withTransaction(async (tx) => {
+  const notifications = await withTransaction(async (tx) => {
     await repo.lockConversation(tx, conversationId);
     await requireGroupAdmin(user, conversationId, tx);
     const ids = await resolveUsers(tx, user, userIds);
     const { total } = await repo.countMembers(tx, conversationId);
-    const inserted = await repo.insertMembers(tx, conversationId, ids);
-    if (total + inserted.length > GROUP_MAX_MEMBERS) throw badRequest(`Un groupe compte au plus ${GROUP_MAX_MEMBERS} membres`);
-    return inserted;
+    const created = await repo.insertInvitations(tx, conversationId, user.id, ids);
+    if (total + (await repo.countPendingInvitations(tx, conversationId)) > GROUP_MAX_MEMBERS) {
+      throw badRequest(`Un groupe compte au plus ${GROUP_MAX_MEMBERS} membres`);
+    }
+    return created;
   });
-  if (added.length) notifyUpdated(await repo.listMemberIds(conversationId), conversationId);
+  if (notifications.length) {
+    notifyUpdated(await repo.listMemberIds(conversationId), conversationId);
+    await pushNotifications(notifications);
+  }
   return getConversation(user, conversationId);
 }
 
@@ -243,9 +312,9 @@ export async function sendMessage(user: PublicUser, conversationId: string, inpu
  * message from its author. Called after the publication has committed; the
  * UNIQUE (poll_id) constraint guarantees a single announcement per poll.
  */
-export async function postPollMessage(author: PublicUser, groupId: string, pollId: string, question: string) {
+export async function postPollMessage(authorId: string, groupId: string, pollId: string, question: string) {
   const result = await withTransaction(async (tx) => {
-    const message = await repo.insertMessage(tx, { conversationId: groupId, senderId: author.id, body: question, clientId: pollId, pollId });
+    const message = await repo.insertMessage(tx, { conversationId: groupId, senderId: authorId, body: question, clientId: pollId, pollId });
     if (!message) return null;
     await repo.touchAfterMessage(tx, message);
     return { message, recipients: await repo.listMemberIds(groupId, tx) };
@@ -253,7 +322,7 @@ export async function postPollMessage(author: PublicUser, groupId: string, pollI
   if (!result) return;
   sendToUsers(result.recipients, 'message:new', { message: result.message });
   await pushUnread(
-    result.recipients.filter((id) => id !== author.id),
+    result.recipients.filter((id) => id !== authorId),
     groupId,
   );
 }

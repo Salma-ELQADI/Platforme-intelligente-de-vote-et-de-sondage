@@ -11,7 +11,7 @@ export interface GeneratedPoll extends AiPollOutput {
 }
 
 /** Errors exposed to the client: explicit but without internal details (no key, no raw provider body). */
-const aiError = {
+export const aiError = {
   notConfigured: () => new AppError(503, 'AI_NOT_CONFIGURED', "La génération par IA n'est pas configurée sur ce serveur"),
   timeout: () => new AppError(504, 'AI_TIMEOUT', "Le service d'IA met trop de temps à répondre, réessayez"),
   unavailable: () => new AppError(503, 'AI_UNAVAILABLE', "Le service d'IA est momentanément indisponible, réessayez plus tard"),
@@ -69,8 +69,19 @@ export function sanitizeOutput(raw: unknown, optionCount: number): AiPollOutput 
   return { question: clean(parsed.data.question), options: options.slice(0, optionCount) };
 }
 
-/** One HTTP call to OpenRouter, with timeout. Returns the assistant's text content. */
-async function callOpenRouter(input: GeneratePollInput): Promise<{ content: string; model: string }> {
+export interface ChatRequest {
+  messages: { role: 'system' | 'user'; content: string }[];
+  jsonSchema: { name: string; strict: boolean; schema: object };
+  temperature: number;
+  maxTokens: number;
+}
+
+/**
+ * One HTTP call to OpenRouter (chat completions with structured output), with
+ * timeout and error mapping. Returns the assistant's text content. Shared by
+ * poll generation and result summaries.
+ */
+export async function callOpenRouter(request: ChatRequest): Promise<{ content: string; model: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), env.OPENROUTER_TIMEOUT_MS);
 
@@ -88,10 +99,10 @@ async function callOpenRouter(input: GeneratePollInput): Promise<{ content: stri
       },
       body: JSON.stringify({
         model: env.OPENROUTER_MODEL,
-        messages: buildMessages(input),
-        temperature: 0.7,
-        max_tokens: 600,
-        response_format: { type: 'json_schema', json_schema: AI_POLL_JSON_SCHEMA },
+        messages: request.messages,
+        temperature: request.temperature,
+        max_tokens: request.maxTokens,
+        response_format: { type: 'json_schema', json_schema: request.jsonSchema },
       }),
     });
   } catch (err) {
@@ -123,7 +134,12 @@ export async function generatePoll(input: GeneratePollInput): Promise<GeneratedP
   if (!env.OPENROUTER_API_KEY) throw aiError.notConfigured();
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const { content, model } = await callOpenRouter(input);
+    const { content, model } = await callOpenRouter({
+      messages: buildMessages(input),
+      jsonSchema: AI_POLL_JSON_SCHEMA,
+      temperature: 0.7,
+      maxTokens: 600,
+    });
     let raw: unknown;
     try {
       raw = extractJson(content);

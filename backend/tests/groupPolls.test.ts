@@ -1,18 +1,11 @@
 import request from 'supertest';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { app, closeDb, createUser, inOneHour, resetDb, type TestUser } from './helpers';
+import { app, closeDb, createGroupWithMembers, createUser, inOneHour, resetDb, type TestUser } from './helpers';
 
 beforeEach(resetDb);
 afterAll(closeDb);
 
-async function createGroup(owner: TestUser, members: TestUser[], name = 'Les amis') {
-  const res = await request(app)
-    .post('/api/conversations/groups')
-    .set(owner.auth)
-    .send({ name, memberIds: members.map((m) => m.id) })
-    .expect(201);
-  return res.body.data.conversation as { id: string };
-}
+const createGroup = (owner: TestUser, members: TestUser[], name = 'Les amis') => createGroupWithMembers(owner, members, name);
 
 async function createGroupPoll(owner: TestUser, groupId: string, { publish = true } = {}) {
   const res = await request(app)

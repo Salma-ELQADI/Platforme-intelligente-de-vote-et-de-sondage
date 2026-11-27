@@ -111,7 +111,7 @@
     "NOT_FOUND": "This item does not exist or is not available to you.",
     "ROUTE_NOT_FOUND": "This item does not exist.",
     "RATE_LIMITED": "Too many requests, please wait a few seconds.",
-    "INVALID_CREDENTIALS": "Incorrect email or password.",
+    "INVALID_CREDENTIALS": "Incorrect username, email or password.",
     "ACCOUNT_DISABLED": "This account has been disabled.",
     "EMAIL_TAKEN": "This email is already in use.",
     "USERNAME_TAKEN": "This username is already taken.",
@@ -136,7 +136,15 @@
     "AI_UNAVAILABLE": "The AI service is unavailable.",
     "AI_TIMEOUT": "The AI took too long to answer. Please try again.",
     "LAST_ADMIN": "The group must keep at least one administrator.",
-    "CLIENT_ID_REUSED": "This message was already sent elsewhere."
+    "CLIENT_ID_REUSED": "This message was already sent elsewhere.",
+    "INVALID_CHOICES": "This ballot does not match the voting method.",
+    "POLL_NOT_STARTED": "This poll is not open yet.",
+    "POLL_NOT_SCHEDULED": "This poll is not scheduled.",
+    "INVALID_REMINDER": "The reminder must come after the opening: choose a shorter delay.",
+    "POLL_NOT_CLOSED": "The analysis is available once the poll has closed.",
+    "NO_VOTES": "No votes: there is nothing to analyse.",
+    "INVITATION_ANSWERED": "This invitation has already been answered.",
+    "GROUP_FULL": "This group is full."
   },
   "fieldErrors": {
     "username": "3 to 30 characters: letters, digits, “.”, “-” and “_”.",
@@ -153,7 +161,20 @@
     "groupId": "Choose a group you are a member of.",
     "topic": "The topic must be between 3 and 200 characters.",
     "name": "The group name must be between 1 and 80 characters.",
-    "body": "A message must be between 1 and 2,000 characters."
+    "body": "A message must be between 1 and 2,000 characters.",
+    "identifier": "Enter your email or your username.",
+    "maxChoices": "The number of choices must be between 2 and the number of answers.",
+    "startsAt": "The opening must be between 1 minute and 1 year from now, and before the closing.",
+    "remindBeforeMinutes": "Reminders are only available for private and group polls.",
+    "codes": {
+      "SELF_INVITE": "You cannot invite yourself: the author of a private poll does not vote.",
+      "UNKNOWN_VOTERS": "User not found: {names}.",
+      "NOT_GROUP_MEMBER": "You must be a member of the group to address a poll to it.",
+      "MAX_CHOICES_REQUIRED": "Enter the maximum number of choices.",
+      "MAX_CHOICES_TOO_MANY": "The number of choices cannot exceed the number of answers.",
+      "END_BEFORE_START": "The closing time must be at least 1 minute after the opening.",
+      "REMINDER_PUBLIC": "Reminders are only available for private and group polls."
+    }
   },
   "time": {
     "over": "over",
@@ -170,7 +191,8 @@
   "status": {
     "DRAFT": "Draft",
     "ACTIVE": "Polls open",
-    "CLOSED": "Polls closed"
+    "CLOSED": "Polls closed",
+    "SCHEDULED": "Scheduled"
   },
   "poll": {
     "aiWritten": "AI-assisted",
@@ -202,7 +224,14 @@
     "deleted": "Poll deleted.",
     "draftDeleted": "Draft deleted.",
     "draftSaved": "Draft saved.",
-    "changesSaved": "Changes saved."
+    "changesSaved": "Changes saved.",
+    "methodMULTIPLE": "Multiple choice",
+    "methodRANKED": "Ranked choice",
+    "methodMultipleMax_one": "Multiple choice",
+    "methodMultipleMax_other": "Multiple choice · up to {count}",
+    "opensOn": "opens on {date} at {time}",
+    "unschedule": "Unschedule",
+    "unscheduled": "Poll moved back to draft."
   },
   "home": {
     "front": "Front page",
@@ -284,7 +313,9 @@
     "voteCast": "Ballot cast. Your vote has been recorded.",
     "roomError": "Live updates for this poll are unavailable.",
     "groupPoll": "Poll of the group {name}",
-    "openGroup": "Open the conversation"
+    "openGroup": "Open the conversation",
+    "opensOn": "Opens on {date} at {time}",
+    "scheduledNotice": "This poll is scheduled: voting opens on {date} at {time}. Until then, only you can read it."
   },
   "ballot": {
     "title": "Ballot paper",
@@ -296,7 +327,19 @@
     "notMember": "This poll is reserved for the members of the group.",
     "submit": "Cast my ballot",
     "oneBallot": "One ballot per participant. It cannot be changed afterwards.",
-    "stamp": "Voted"
+    "stamp": "Voted",
+    "titleSINGLE": "Ballot paper",
+    "titleMULTIPLE": "Multiple-choice ballot",
+    "titleRANKED": "Ranked ballot",
+    "instructionsMultiple_one": "Tick one box, then cast your ballot.",
+    "instructionsMultiple_other": "Tick up to {count} boxes, then cast your ballot.",
+    "instructionsRanked": "Click the answers in your order of preference: 1 is your first choice. You do not have to rank every answer.",
+    "rank": "rank {n}",
+    "selectedOf": "{n} / {max} chosen",
+    "ranked_one": "{count} answer ranked",
+    "ranked_other": "{count} answers ranked",
+    "reset": "Clear all",
+    "rankedHint": "If your first choice is eliminated during the count, your vote moves to your next one."
   },
   "results": {
     "finalCount": "Ballots in the final count",
@@ -309,7 +352,18 @@
     "leading": "Leading",
     "ballots_one": "{count} vote",
     "ballots_other": "{count} votes",
-    "final": "Final results, as of the close of the poll."
+    "final": "Final results, as of the close of the poll.",
+    "runoff": "Round-by-round count",
+    "runoffText": "Each round, the least supported answer is eliminated and its ballots move to their next choice, until one answer has a majority.",
+    "answer": "Answer",
+    "round": "Round {n}",
+    "exhausted_one": "{count} exhausted ballot (no choice left in the race)",
+    "exhausted_other": "{count} exhausted ballots (no choice left in the race)",
+    "winner_one": "Winner of the runoff",
+    "winner_other": "Perfect tie",
+    "leadingRunoff": "Leading the provisional count",
+    "firstPreferences": "Distribution of first choices",
+    "shareOfVoters": "Share of voters who picked each answer (the total can exceed 100%)."
   },
   "pollForm": {
     "question": "The question",
@@ -352,7 +406,26 @@
     "lockedAfterPublish": "A published poll can no longer be edited.",
     "twoAnswers": "Add at least two non-empty answers.",
     "inviteOne": "Invite at least one voter before publishing a private poll.",
-    "pickGroup": "Choose the group this poll is for."
+    "pickGroup": "Choose the group this poll is for.",
+    "method": "Voting method",
+    "singleTitle": "Single choice",
+    "singleText": "One answer per voter.",
+    "multipleTitle": "Multiple choice",
+    "multipleText": "Several answers per voter, up to a limit you set.",
+    "rankedTitle": "Ranked choice",
+    "rankedText": "Voters rank the answers; the winner emerges from successive eliminations.",
+    "maxChoices": "Maximum number of choices",
+    "schedule": "Schedule the opening",
+    "scheduleHint": "The poll is published now, but voting only opens at the chosen time.",
+    "opening": "Voting opens",
+    "reminder": "Reminder before closing",
+    "reminderHint": "A notice is sent to those who have not voted yet.",
+    "noReminder": "No reminder",
+    "remind15": "15 minutes before",
+    "remind60": "1 hour before",
+    "remind180": "3 hours before",
+    "remind1440": "1 day before",
+    "scheduledPublish": "Publishing schedules the opening; you can unschedule the poll to edit it."
   },
   "ai": {
     "commission": "The brief",
@@ -412,7 +485,8 @@
     "votesCount_one": "{count} vote received",
     "votesCount_other": "{count} votes received",
     "emptyTitle": "Nothing at the press.",
-    "emptyText": "Write your first poll: it will appear here, from draft to final results."
+    "emptyText": "Write your first poll: it will appear here, from draft to final results.",
+    "scheduled": "Scheduled"
   },
   "myVotes": {
     "kicker": "Your ballots",
@@ -434,7 +508,10 @@
     "emptyTitle": "No dispatch.",
     "emptyText": "Closing notices for your polls will arrive here.",
     "new": "New",
-    "POLL_CLOSED": "The poll “{question}” has closed. The final results are available."
+    "POLL_CLOSED": "The poll “{question}” has closed. The final results are available.",
+    "POLL_OPENED": "You are invited to vote in the poll “{question}”.",
+    "POLL_REMINDER": "The poll “{question}” closes soon: you have not voted yet.",
+    "GROUP_INVITE": "{name} invites you to join the group “{group}”."
   },
   "profile": {
     "kicker": "Reader’s desk",
@@ -493,7 +570,8 @@
     "passwordHint": "8 characters, a letter and a digit",
     "confirm": "Confirmation",
     "submitRegister": "Create my account",
-    "quote": "“{text}”"
+    "quote": "“{text}”",
+    "identifier": "Email or username"
   },
   "notFound": {
     "kicker": "Erratum",
@@ -576,9 +654,9 @@
     "members": "Members",
     "selected_one": "{count} member selected",
     "selected_other": "{count} members selected",
-    "create": "Create the group",
+    "create": "Create and invite",
     "start": "Write",
-    "add": "Add",
+    "add": "Invite",
     "pickOne": "Choose at least one member."
   },
   "groups": {
@@ -590,8 +668,8 @@
     "rename": "Rename",
     "name": "Group name",
     "renamed": "Group renamed.",
-    "addMembers": "Add members",
-    "added": "Members added.",
+    "addMembers": "Invite members",
+    "added": "Invitations sent.",
     "makeAdmin": "Make administrator",
     "revokeAdmin": "Revoke rights",
     "removeMember": "Remove from group",
@@ -606,5 +684,31 @@
     "createdBy": "Created by {name}",
     "adminsOnly": "Only administrators manage the group’s name and members.",
     "directWith": "Private conversation with {name}"
+  },
+  "summary": {
+    "title": "The desk’s analysis",
+    "writing": "Writing the analysis",
+    "credit": "Written by AI ({model}) from the final results."
+  },
+  "invitations": {
+    "title": "Invitations",
+    "pending_one": "{count} pending invitation",
+    "pending_other": "{count} pending invitations",
+    "text": "{name} invites you to join the group {group}.",
+    "textAnonymous": "You are invited to join the group {group}.",
+    "accept": "Accept",
+    "decline": "Decline",
+    "accepted": "You joined “{group}”.",
+    "declined": "Invitation to “{group}” declined.",
+    "sent_one": "{count} invitation sent",
+    "sent_other": "{count} invitations sent",
+    "withdraw": "Withdraw",
+    "withdrawn": "Invitation of {name} withdrawn.",
+    "status": {
+      "PENDING": "Pending invitation",
+      "ACCEPTED": "Invitation accepted",
+      "DECLINED": "Invitation declined",
+      "CANCELLED": "Invitation withdrawn"
+    }
   }
 }

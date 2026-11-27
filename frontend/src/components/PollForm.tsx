@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { useI18n } from "@/contexts/PreferencesContext";
 import { api, ApiError } from "@/lib/api";
 import { cn, toDateTimeLocal } from "@/lib/format";
-import type { Conversation, PollAccess, PollFormValues, ResultsVisibility } from "@/types";
+import type { Conversation, PollAccess, PollFormValues, ResultsVisibility, VotingMethod } from "@/types";
 import { Alert, Button, Field, Input, Select, Textarea } from "./ui";
 
 const defaultEnd = () => new Date(Date.now() + 24 * 3600_000).toISOString();
@@ -13,6 +14,15 @@ const visibilityChoices: { value: ResultsVisibility; key: string }[] = [
   { value: "LIVE", key: "live" },
   { value: "AFTER_CLOSE", key: "embargo" },
 ];
+
+const methodChoices: { value: VotingMethod; key: string }[] = [
+  { value: "SINGLE", key: "single" },
+  { value: "MULTIPLE", key: "multiple" },
+  { value: "RANKED", key: "ranked" },
+];
+
+/** Reminder lead times offered (minutes). */
+const reminderChoices = [15, 60, 180, 1440];
 
 const accessChoices: { value: PollAccess; key: string }[] = [
   { value: "PUBLIC", key: "public" },
@@ -71,6 +81,7 @@ function GroupPicker({ value, onChange, error }: { value: string; onChange: (id:
  */
 function VotersPicker({ voters, onChange, error }: { voters: string[]; onChange: (v: string[]) => void; error?: string }) {
   const { t, errorText } = useI18n();
+  const { user: me } = useAuth();
   const [identifier, setIdentifier] = useState("");
   const [checking, setChecking] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
@@ -82,7 +93,9 @@ function VotersPicker({ voters, onChange, error }: { voters: string[]; onChange:
     setChecking(true);
     try {
       const { user } = await api.lookupUser(value);
-      if (voters.some((v) => v.toLowerCase() === user.username.toLowerCase())) setLookupError(t("pollForm.alreadyInvited", { name: user.username }));
+      // Caught here, before saving: the author never votes in their own private poll.
+      if (user.id === me?.id) setLookupError(t("fieldErrors.codes.SELF_INVITE"));
+      else if (voters.some((v) => v.toLowerCase() === user.username.toLowerCase())) setLookupError(t("pollForm.alreadyInvited", { name: user.username }));
       else {
         onChange([...voters, user.username]);
         setIdentifier("");
@@ -161,6 +174,11 @@ export function PollForm({
   const [access, setAccess] = useState<PollAccess>(initial?.access ?? "PUBLIC");
   const [voters, setVoters] = useState<string[]>(initial?.voters ?? []);
   const [groupId, setGroupId] = useState(initial?.groupId ?? "");
+  const [method, setMethod] = useState<VotingMethod>(initial?.votingMethod ?? "SINGLE");
+  const [maxChoices, setMaxChoices] = useState(initial?.maxChoices ?? 2);
+  const [scheduled, setScheduled] = useState(!!initial?.startsAt);
+  const [startsAt, setStartsAt] = useState(() => toDateTimeLocal(initial?.startsAt ?? new Date(Date.now() + 3600_000).toISOString()));
+  const [reminder, setReminder] = useState<number | null>(initial?.remindBeforeMinutes ?? null);
   const [pending, setPending] = useState<"draft" | "publish" | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
 
@@ -198,6 +216,10 @@ export function PollForm({
           access,
           voters: access === "PRIVATE" ? voters : [],
           groupId: access === "GROUP" ? groupId : null,
+          votingMethod: method,
+          maxChoices: method === "MULTIPLE" ? Math.min(maxChoices, cleaned.length) : null,
+          startsAt: scheduled ? new Date(startsAt).toISOString() : null,
+          remindBeforeMinutes: access === "PUBLIC" ? null : reminder,
         },
         publish,
       );
@@ -269,10 +291,51 @@ export function PollForm({
         )}
       </fieldset>
 
+      <fieldset className="border-t border-rule pt-8">
+        <legend className="kicker mb-2 text-umber">{t("pollForm.method")}</legend>
+        <div className="grid gap-2 md:grid-cols-3">
+          {methodChoices.map((c) => (
+            <Choice
+              key={c.value}
+              name="method"
+              checked={method === c.value}
+              onChange={() => setMethod(c.value)}
+              title={t(`pollForm.${c.key}Title`)}
+              text={t(`pollForm.${c.key}Text`)}
+            />
+          ))}
+        </div>
+        {method === "MULTIPLE" && (
+          <div className="mt-4 max-w-xs">
+            <Field label={t("pollForm.maxChoices")} htmlFor="maxChoices" error={fieldError(error, "maxChoices")}>
+              <Select id="maxChoices" value={maxChoices} onChange={(e) => setMaxChoices(Number(e.target.value))} className="font-mono">
+                {Array.from({ length: Math.max(1, options.length - 1) }, (_, i) => i + 2).map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+        )}
+      </fieldset>
+
       <div className="grid gap-8 border-t border-rule pt-8 md:grid-cols-2">
-        <Field label={t("pollForm.closing")} htmlFor="endTime" error={fieldError(error, "endTime")}>
-          <Input id="endTime" type="datetime-local" value={endTime} onChange={(e) => setEndTime(e.target.value)} required dir="ltr" className="font-mono" />
-        </Field>
+        <div className="space-y-5">
+          <label className="flex cursor-pointer items-start gap-3 text-sm text-ink">
+            <input type="checkbox" checked={scheduled} onChange={(e) => setScheduled(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--foreground)]" />
+            <span>
+              <span className="block font-semibold">{t("pollForm.schedule")}</span>
+              <span className="block text-xs text-umber">{t("pollForm.scheduleHint")}</span>
+            </span>
+          </label>
+          {scheduled && (
+            <Field label={t("pollForm.opening")} htmlFor="startsAt" error={fieldError(error, "startsAt")}>
+              <Input id="startsAt" type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} required dir="ltr" className="font-mono" />
+            </Field>
+          )}
+          <Field label={t("pollForm.closing")} htmlFor="endTime" error={fieldError(error, "endTime")}>
+            <Input id="endTime" type="datetime-local" value={endTime} onChange={(e) => setEndTime(e.target.value)} required dir="ltr" className="font-mono" />
+          </Field>
+        </div>
         <fieldset>
           <legend className="kicker mb-2 text-umber">{t("pollForm.resultsPublication")}</legend>
           <div className="grid gap-2">
@@ -306,12 +369,24 @@ export function PollForm({
             ))}
           </div>
         </fieldset>
-        {access === "PRIVATE" && <VotersPicker voters={voters} onChange={setVoters} error={fieldError(error, "voters")} />}
-        {access === "GROUP" && <GroupPicker value={groupId} onChange={setGroupId} error={fieldError(error, "groupId")} />}
+        <div className="space-y-6">
+          {access === "PRIVATE" && <VotersPicker voters={voters} onChange={setVoters} error={fieldError(error, "voters")} />}
+          {access === "GROUP" && <GroupPicker value={groupId} onChange={setGroupId} error={fieldError(error, "groupId")} />}
+          {access !== "PUBLIC" && (
+            <Field label={t("pollForm.reminder")} htmlFor="reminder" hint={t("pollForm.reminderHint")} error={fieldError(error, "remindBeforeMinutes")}>
+              <Select id="reminder" value={reminder ?? ""} onChange={(e) => setReminder(e.target.value ? Number(e.target.value) : null)}>
+                <option value="">{t("pollForm.noReminder")}</option>
+                {reminderChoices.map((m) => (
+                  <option key={m} value={m}>{t(`pollForm.remind${m}`)}</option>
+                ))}
+              </Select>
+            </Field>
+          )}
+        </div>
       </div>
 
       {error && !error.details && <Alert>{errorText(error)}</Alert>}
-      {error?.details && !["question", "options", "endTime", "voters", "groupId"].some((f) => error.fieldError(f)) && <Alert>{errorText(error)}</Alert>}
+      {error?.details && !["question", "options", "endTime", "voters", "groupId", "maxChoices", "startsAt", "remindBeforeMinutes"].some((f) => error.fieldError(f)) && <Alert>{errorText(error)}</Alert>}
 
       <div className="flex flex-wrap items-center gap-3 border-t border-ink pt-6">
         <Button type="button" loading={pending === "publish"} disabled={pending !== null} onClick={() => submit(true)}>
@@ -320,7 +395,7 @@ export function PollForm({
         <Button type="submit" variant="secondary" loading={pending === "draft"} disabled={pending !== null}>
           {labels.draft}
         </Button>
-        <span className="text-xs text-umber">{t("pollForm.lockedAfterPublish")}</span>
+        <span className="text-xs text-umber">{scheduled ? t("pollForm.scheduledPublish") : t("pollForm.lockedAfterPublish")}</span>
       </div>
     </form>
   );

@@ -76,6 +76,10 @@ export function PreferencesProvider({ initialLocale, initialTheme, children }: {
       current.current.theme = th;
       setThemeState(th);
       writeCookie(THEME_COOKIE, th);
+      // Colours cross-fade only during the switch itself (see .theme-switching in globals.css).
+      const root = document.documentElement;
+      root.classList.add("theme-switching");
+      window.setTimeout(() => root.classList.remove("theme-switching"), 320);
       applyToDocument(current.current.locale, th);
       save({ theme: th });
     },
@@ -127,9 +131,12 @@ export function PreferencesProvider({ initialLocale, initialTheme, children }: {
         return hasKey(locale, `errors.${err.code}`) ? t(`errors.${err.code}`) : t("errors.UNKNOWN");
       },
       fieldError(err, field) {
-        const raw = err?.fieldError(field);
-        if (!raw) return undefined;
-        if (locale === "fr" || err?.code === "CLIENT") return raw;
+        const detail = err?.fieldDetail(field);
+        if (!detail) return undefined;
+        if (err?.code === "CLIENT") return detail.message;
+        // A precise code ("SELF_INVITE", "UNKNOWN_VOTERS"…) is worded exactly, in every language.
+        if (detail.code && hasKey(locale, `fieldErrors.codes.${detail.code}`)) return t(`fieldErrors.codes.${detail.code}`, detail.params);
+        if (locale === "fr") return detail.message;
         return hasKey(locale, `fieldErrors.${field}`) ? t(`fieldErrors.${field}`) : t("errors.VALIDATION_ERROR");
       },
     };

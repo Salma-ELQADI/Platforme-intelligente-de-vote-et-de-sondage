@@ -95,7 +95,7 @@ function LiveFrontPage() {
                 {lead.canVote && !lead.myVoteOptionId && lead.isOpen ? t("poll.vote") : t("poll.follow")}
               </ButtonLink>
             </div>
-            <div>{leadResults && <ResultsBars results={leadResults} myVoteOptionId={lead.myVoteOptionId} compact />}</div>
+            <div>{leadResults && <ResultsBars results={leadResults} myVoteOptionId={lead.myVoteOptionId} myChoices={lead.myChoices} compact />}</div>
           </div>
         </article>
 

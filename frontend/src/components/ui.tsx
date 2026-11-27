@@ -150,6 +150,7 @@ export function Alert({ kind = "error", children }: { kind?: "error" | "info" | 
 
 const statusStyle: Record<PollStatus, string> = {
   DRAFT: "border border-dashed border-umber/60 text-umber",
+  SCHEDULED: "border border-accent text-accent",
   ACTIVE: "bg-ink text-paper",
   CLOSED: "border border-ink text-ink",
 };

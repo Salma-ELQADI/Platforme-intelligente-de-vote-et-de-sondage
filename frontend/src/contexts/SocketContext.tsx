@@ -47,7 +47,15 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     s.on("disconnect", () => setConnected(false));
     s.on("notification:new", (n: Notification) => {
       setUnreadCount((c) => c + 1);
-      toast(n.pollQuestion ? tRef.current(`notifications.${n.type}`, { question: n.pollQuestion }) : n.message, "info");
+      const t = tRef.current;
+      toast(
+        n.invitation
+          ? t("notifications.GROUP_INVITE", { name: n.invitation.invitedBy ?? "—", group: n.invitation.groupName })
+          : n.pollQuestion
+            ? t(`notifications.${n.type}`, { question: n.pollQuestion })
+            : n.message,
+        "info",
+      );
     });
 
     // Initial unread counter (notifications received while offline).

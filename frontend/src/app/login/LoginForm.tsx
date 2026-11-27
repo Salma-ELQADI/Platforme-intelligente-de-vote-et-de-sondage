@@ -16,7 +16,7 @@ export function LoginForm() {
   const { t, errorText, fieldError } = useI18n();
   const router = useRouter();
   const next = safeNext(useSearchParams().get("next"));
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<ApiError | null>(null);
   const [loading, setLoading] = useState(false);
@@ -30,7 +30,7 @@ export function LoginForm() {
     setLoading(true);
     setError(null);
     try {
-      await login(email, password);
+      await login(identifier.trim(), password);
       router.replace(next);
     } catch (err) {
       setError(err as ApiError);
@@ -53,8 +53,8 @@ export function LoginForm() {
       }
     >
       <form onSubmit={onSubmit} className="space-y-5">
-        <Field label={t("auth.email")} htmlFor="email" error={fieldError(error, "email")}>
-          <Input id="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required dir="ltr" />
+        <Field label={t("auth.identifier")} htmlFor="identifier" error={fieldError(error, "identifier")}>
+          <Input id="identifier" autoComplete="username" autoCapitalize="none" spellCheck={false} value={identifier} onChange={(e) => setIdentifier(e.target.value)} required dir="ltr" />
         </Field>
         <Field label={t("auth.password")} htmlFor="password" error={fieldError(error, "password")}>
           <Input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required dir="ltr" />

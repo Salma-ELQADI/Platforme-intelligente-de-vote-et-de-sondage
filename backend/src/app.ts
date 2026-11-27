@@ -12,7 +12,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { apiLimiter } from './middleware/rateLimit';
 import { aiRouter } from './modules/ai/ai.routes';
 import { authRouter } from './modules/auth/auth.routes';
-import { conversationsRouter } from './modules/messaging/messaging.routes';
+import { conversationsRouter, invitationsRouter } from './modules/messaging/messaging.routes';
 import { notificationsRouter } from './modules/notifications/notifications.routes';
 import { pollsRouter } from './modules/polls/polls.routes';
 import { usersRouter } from './modules/users/users.routes';
@@ -59,6 +59,7 @@ export function createApp() {
   app.use('/api/ai', aiRouter);
   app.use('/api/notifications', notificationsRouter);
   app.use('/api/conversations', conversationsRouter);
+  app.use('/api/invitations', invitationsRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, ApiError } from "@/lib/api";
-import type { Conversation, Message } from "@/types";
+import type { Conversation, GroupInvitation, Message, Notification } from "@/types";
 import { useAuth } from "./AuthContext";
 import { usePreferences } from "./PreferencesContext";
 import { useSocket } from "./SocketContext";
@@ -22,6 +22,11 @@ export type ThreadEvent =
 
 interface MessagingValue {
   conversations: Conversation[] | null;
+  /** My pending group invitations. */
+  invitations: GroupInvitation[];
+  /** Accepts an invitation: I become a member; returns the group. */
+  acceptInvitation: (id: string) => Promise<Conversation>;
+  declineInvitation: (id: string) => Promise<void>;
   totalUnread: number;
   error: ApiError | null;
   typing: Record<string, TypingUser[]>;
@@ -65,6 +70,7 @@ export function MessagingProvider({ children }: { children: ReactNode }) {
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [typing, setTyping] = useState<Record<string, TypingUser[]>>({});
+  const [invitations, setInvitations] = useState<GroupInvitation[]>([]);
   const activeId = useRef<string | null>(null);
   const listeners = useRef(new Set<(e: ThreadEvent) => void>());
   const conversationsRef = useRef<Conversation[] | null>(null);
@@ -101,7 +107,12 @@ export function MessagingProvider({ children }: { children: ReactNode }) {
     [upsertConversation, removeConversation],
   );
 
+  const loadInvitations = useCallback(() => {
+    api.invitations().then((d) => setInvitations(d.invitations)).catch(() => undefined);
+  }, []);
+
   const loadAll = useCallback((forUserId: string) => {
+    loadInvitations();
     Promise.all([api.conversations(), api.unreadMessages()])
       .then(([{ conversations }, { total }]) => {
         // Keep the conversation on screen even if the list omits it (an empty
@@ -115,7 +126,7 @@ export function MessagingProvider({ children }: { children: ReactNode }) {
         setError(null);
       })
       .catch((e) => setError(e instanceof ApiError ? e : null));
-  }, []);
+  }, [loadInvitations]);
 
   // Load on login (and again once the socket is up, so presence is fresh).
   useEffect(() => {
@@ -200,6 +211,11 @@ export function MessagingProvider({ children }: { children: ReactNode }) {
       setConversations((list) => list?.map((c) => ({ ...c, members: c.members.map((m) => (m.id === p.userId ? { ...m, online: p.online } : m)) })) ?? null);
     };
 
+    // A new invitation arrives as a notification.
+    const onNotification = (n: Notification) => {
+      if (n.type === "GROUP_INVITE") loadInvitations();
+    };
+
     // `connect` fires on every reconnection (the first connection happened before this effect).
     const onReconnect = () => {
       loadAll(user.id);
@@ -214,7 +230,9 @@ export function MessagingProvider({ children }: { children: ReactNode }) {
     socket.on("typing", onTyping);
     socket.on("presence:update", onPresence);
     socket.on("connect", onReconnect);
+    socket.on("notification:new", onNotification);
     return () => {
+      socket.off("notification:new", onNotification);
       socket.off("message:new", onMessage);
       socket.off("unread:update", onUnread);
       socket.off("conversation:updated", onUpdated);
@@ -224,7 +242,22 @@ export function MessagingProvider({ children }: { children: ReactNode }) {
       socket.off("presence:update", onPresence);
       socket.off("connect", onReconnect);
     };
-  }, [socket, user, emit, loadAll, refreshConversation, removeConversation, toast]);
+  }, [socket, user, emit, loadAll, loadInvitations, refreshConversation, removeConversation, toast]);
+
+  const acceptInvitation = useCallback(
+    async (id: string) => {
+      const { conversation } = await api.acceptInvitation(id);
+      setInvitations((list) => list.filter((i) => i.id !== id));
+      upsertConversation(conversation);
+      return conversation;
+    },
+    [upsertConversation],
+  );
+
+  const declineInvitation = useCallback(async (id: string) => {
+    await api.declineInvitation(id);
+    setInvitations((list) => list.filter((i) => i.id !== id));
+  }, []);
 
   // Expire typing indicators whose author went quiet (lost "stop" event, closed tab…).
   useEffect(() => {
@@ -247,6 +280,9 @@ export function MessagingProvider({ children }: { children: ReactNode }) {
   const value = useMemo<MessagingValue>(
     () => ({
       conversations: mine ? conversations : null,
+      invitations: mine ? invitations : [],
+      acceptInvitation,
+      declineInvitation,
       totalUnread: mine ? totalUnread : 0,
       error,
       typing: mine ? typing : {},
@@ -264,7 +300,7 @@ export function MessagingProvider({ children }: { children: ReactNode }) {
         return () => listeners.current.delete(fn);
       },
     }),
-    [mine, conversations, totalUnread, error, typing, refreshConversation, upsertConversation, removeConversation],
+    [mine, conversations, invitations, acceptInvitation, declineInvitation, totalUnread, error, typing, refreshConversation, upsertConversation, removeConversation],
   );
 
   return <MessagingContext.Provider value={value}>{children}</MessagingContext.Provider>;
@@ -272,6 +308,11 @@ export function MessagingProvider({ children }: { children: ReactNode }) {
 
 const fallback: MessagingValue = {
   conversations: null,
+  invitations: [],
+  acceptInvitation: async () => {
+    throw new Error("MessagingProvider missing");
+  },
+  declineInvitation: async () => undefined,
   totalUnread: 0,
   error: null,
   typing: {},
