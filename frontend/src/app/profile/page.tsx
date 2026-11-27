@@ -6,11 +6,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/contexts/ToastContext";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { api, ApiError } from "@/lib/api";
-import { formatShortDate } from "@/lib/format";
+import Link from "next/link";
+import { useI18n } from "@/contexts/PreferencesContext";
 
 export default function ProfilePage() {
   const { ready, user } = useRequireAuth();
   const { setUser } = useAuth();
+  const { t, fmt, errorText, fieldError } = useI18n();
   const toast = useToast();
   const [username, setUsername] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
@@ -42,7 +44,7 @@ export default function ProfilePage() {
       setEmail(null);
       setNewPassword("");
       setCurrentPassword("");
-      toast("Profil mis à jour.", "success");
+      toast(t("profile.updated"), "success");
     } catch (err) {
       setError(err as ApiError);
     } finally {
@@ -52,24 +54,24 @@ export default function ProfilePage() {
 
   return (
     <>
-      <PageHeader kicker="Espace lecteur" title="Mon profil" />
+      <PageHeader kicker={t("profile.kicker")} title={t("profile.title")} action={<Link href="/settings" className="kicker text-umber underline decoration-rule underline-offset-4 hover:text-ink">{t("profile.settingsLink")}</Link>} />
       <div className="grid gap-12 lg:grid-cols-12">
         {/* Press card */}
         <aside className="lg:col-span-4">
           <div className="border border-ink bg-paper p-1.5">
             <div className="border border-rule p-6 text-center">
-              <p className="kicker text-umber">Carte de lecteur</p>
+              <p className="kicker text-umber">{t("profile.card")}</p>
               <p className="mt-5 font-serif text-6xl font-black leading-none text-ink">{user.username[0]?.toUpperCase()}</p>
-              <p className="mt-4 font-serif text-2xl font-bold text-ink">{user.username}</p>
-              <p className="mt-1 text-sm text-umber">{user.email}</p>
-              <dl className="mt-6 grid grid-cols-2 border-t border-rule pt-4 text-left">
+              <p className="mt-4 font-serif text-2xl font-bold text-ink"><bdi>{user.username}</bdi></p>
+              <p className="mt-1 text-sm text-umber" dir="ltr">{user.email}</p>
+              <dl className="mt-6 grid grid-cols-2 border-t border-rule pt-4 text-start">
                 <div>
-                  <dt className="kicker text-umber">Statut</dt>
-                  <dd className="mt-1 text-sm font-medium text-ink">{user.role === "admin" ? "Administrateur" : "Lecteur"}</dd>
+                  <dt className="kicker text-umber">{t("profile.status")}</dt>
+                  <dd className="mt-1 text-sm font-medium text-ink">{user.role === "admin" ? t("profile.admin") : t("profile.reader")}</dd>
                 </div>
                 <div>
-                  <dt className="kicker text-umber">Depuis le</dt>
-                  <dd className="mt-1 font-mono text-sm text-ink">{formatShortDate(user.createdAt)}</dd>
+                  <dt className="kicker text-umber">{t("profile.since")}</dt>
+                  <dd className="mt-1 font-mono text-sm text-ink">{fmt.shortDate(user.createdAt)}</dd>
                 </div>
               </dl>
             </div>
@@ -77,27 +79,27 @@ export default function ProfilePage() {
         </aside>
 
         <section className="lg:col-span-7 lg:col-start-6">
-          <SectionTitle>Modifier mes informations</SectionTitle>
+          <SectionTitle>{t("profile.editInfo")}</SectionTitle>
           <Card>
             <form onSubmit={onSubmit} className="space-y-6">
               <div className="grid gap-6 sm:grid-cols-2">
-                <Field label="Nom d’utilisateur" htmlFor="username" error={error?.fieldError("username")}>
-                  <Input id="username" value={usernameValue} onChange={(e) => setUsername(e.target.value)} />
+                <Field label={t("profile.username")} htmlFor="username" error={fieldError(error, "username")}>
+                  <Input id="username" value={usernameValue} onChange={(e) => setUsername(e.target.value)} dir="ltr" />
                 </Field>
-                <Field label="Email" htmlFor="email" error={error?.fieldError("email")}>
-                  <Input id="email" type="email" value={emailValue} onChange={(e) => setEmail(e.target.value)} />
+                <Field label={t("profile.email")} htmlFor="email" error={fieldError(error, "email")}>
+                  <Input id="email" type="email" value={emailValue} onChange={(e) => setEmail(e.target.value)} dir="ltr" />
                 </Field>
               </div>
-              <Field label="Nouveau mot de passe (facultatif)" htmlFor="newPassword" error={error?.fieldError("newPassword")}>
+              <Field label={t("profile.newPassword")} htmlFor="newPassword" error={fieldError(error, "newPassword")}>
                 <Input id="newPassword" type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
               </Field>
               {needsPassword && (
-                <Field label="Mot de passe actuel" htmlFor="currentPassword" hint="Requis pour changer l’email ou le mot de passe." error={error?.fieldError("currentPassword")}>
+                <Field label={t("profile.currentPassword")} htmlFor="currentPassword" hint={t("profile.currentPasswordHint")} error={fieldError(error, "currentPassword")}>
                   <Input id="currentPassword" type="password" autoComplete="current-password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required />
                 </Field>
               )}
-              {error && !error.details && <Alert>{error.message}</Alert>}
-              <Button type="submit" loading={loading}>Enregistrer les modifications</Button>
+              {error && !error.details && <Alert>{errorText(error)}</Alert>}
+              <Button type="submit" loading={loading}>{t("profile.save")}</Button>
             </form>
           </Card>
         </section>

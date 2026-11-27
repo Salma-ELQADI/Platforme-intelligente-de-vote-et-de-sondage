@@ -7,7 +7,7 @@ import type { GeneratePollInput } from './ai.schemas';
  *    model treats it as content and not as new instructions (prompt-injection mitigation).
  */
 export function buildMessages(input: GeneratePollInput) {
-  const lang = input.language === 'fr' ? 'French' : 'English';
+  const lang = { fr: 'French', en: 'English', ar: 'Modern Standard Arabic' }[input.language];
 
   const system = [
     'You are an assistant that writes high-quality opinion polls for an online voting platform.',

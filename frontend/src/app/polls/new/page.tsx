@@ -1,24 +1,30 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { AiGeneratorPanel } from "@/components/AiGeneratorPanel";
 import { PollForm } from "@/components/PollForm";
 import { PageHeader, PageLoader, SectionTitle, Tabs } from "@/components/ui";
+import { useI18n } from "@/contexts/PreferencesContext";
 import { useToast } from "@/contexts/ToastContext";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { api } from "@/lib/api";
 import type { GeneratedPoll, PollFormValues } from "@/types";
 
-const guide = [
-  { title: "Une seule idée par question", text: "Évitez les questions doubles : « et » dans une question cache souvent deux sondages." },
-  { title: "Une formulation neutre", text: "La question ne doit pas suggérer de réponse. Préférez « Que pensez-vous de… » à « N’êtes-vous pas d’accord que… »." },
-  { title: "Des réponses qui ne se chevauchent pas", text: "Chaque lecteur doit pouvoir se reconnaître dans une seule réponse." },
-  { title: "Une clôture réaliste", text: "Laissez aux lecteurs le temps de voter : quelques heures pour un sujet chaud, quelques jours sinon." },
-];
-
 export default function NewPollPage() {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <NewPoll />
+    </Suspense>
+  );
+}
+
+function NewPoll() {
   const { ready } = useRequireAuth();
+  const { t, fmt } = useI18n();
+  // "Lancer un sondage" from a group conversation pre-selects that group.
+  const groupId = useSearchParams().get("group");
+  const guide = [1, 2, 3, 4].map((n) => ({ title: t(`newPoll.guide${n}Title`), text: t(`newPoll.guide${n}`) }));
   const router = useRouter();
   const toast = useToast();
   const [mode, setMode] = useState<"MANUAL" | "AI">("MANUAL");
@@ -32,25 +38,25 @@ export default function NewPollPage() {
   const save = async (values: PollFormValues, publish: boolean) => {
     const { poll } = await api.createPoll({ ...values, creationMode: mode === "AI" && generated ? "AI" : "MANUAL" });
     if (publish) await api.publishPoll(poll.id);
-    toast(publish ? "Sondage publié." : "Brouillon enregistré.", "success");
+    toast(publish ? t("poll.published") : t("poll.draftSaved"), "success");
     router.push(`/polls/${poll.id}`);
   };
 
   return (
     <>
       <PageHeader
-        kicker="La rédaction"
-        title="Rédiger un sondage"
-        subtitle="Écrivez la question vous-même, ou commandez une première épreuve à l’IA puis corrigez-la."
+        kicker={t("newPoll.kicker")}
+        title={t("newPoll.title")}
+        subtitle={t("newPoll.subtitle")}
       />
       <div className="mb-10">
         <Tabs
-          label="Mode de rédaction"
+          label={t("newPoll.mode")}
           value={mode}
           onChange={setMode}
           items={[
-            { value: "MANUAL", label: "Plume libre" },
-            { value: "AI", label: "Bureau de l’IA" },
+            { value: "MANUAL", label: t("newPoll.manual") },
+            { value: "AI", label: t("newPoll.aiDesk") },
           ]}
         />
       </div>
@@ -71,19 +77,22 @@ export default function NewPollPage() {
       {(mode === "MANUAL" || generated) && (
         <div className="grid gap-12 lg:grid-cols-12">
           <section className="lg:col-span-8">
-            {mode === "AI" && <SectionTitle>Relecture et mise en page</SectionTitle>}
+            {mode === "AI" && <SectionTitle>{t("newPoll.review")}</SectionTitle>}
             <PollForm
               key={`${mode}-${generation}`}
-              initial={mode === "AI" && generated ? { question: generated.question, options: generated.options } : undefined}
+              initial={{
+                ...(mode === "AI" && generated ? { question: generated.question, options: generated.options } : {}),
+                ...(groupId ? { access: "GROUP" as const, groupId } : {}),
+              }}
               onSubmit={save}
             />
           </section>
-          <aside className="lg:col-span-4 lg:border-l lg:border-rule lg:pl-10">
-            <SectionTitle>Guide de rédaction</SectionTitle>
+          <aside className="lg:col-span-4 lg:border-s lg:border-rule lg:ps-10">
+            <SectionTitle>{t("newPoll.guide")}</SectionTitle>
             <ol className="space-y-5">
               {guide.map((g, i) => (
                 <li key={g.title} className="flex gap-4">
-                  <span className="font-serif text-2xl font-black leading-none text-muted">{i + 1}</span>
+                  <span className="font-serif text-2xl font-black leading-none text-muted">{fmt.number(i + 1)}</span>
                   <div>
                     <p className="font-serif text-lg font-semibold text-ink">{g.title}</p>
                     <p className="mt-1 text-sm leading-relaxed text-umber">{g.text}</p>

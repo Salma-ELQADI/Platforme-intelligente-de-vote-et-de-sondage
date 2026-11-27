@@ -4,7 +4,15 @@ export type Role = "user" | "admin";
 export type PollStatus = "DRAFT" | "ACTIVE" | "CLOSED";
 export type ResultsVisibility = "LIVE" | "AFTER_CLOSE";
 export type CreationMode = "MANUAL" | "AI";
-export type PollAccess = "PUBLIC" | "PRIVATE";
+export type PollAccess = "PUBLIC" | "PRIVATE" | "GROUP";
+export type Locale = "fr" | "en" | "ar";
+export type ThemePreference = "system" | "light" | "dark";
+
+export interface UserPreferences {
+  locale: Locale | null;
+  theme: ThemePreference;
+  messageNotifications: boolean;
+}
 
 export interface User {
   id: string;
@@ -14,6 +22,7 @@ export interface User {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  preferences: UserPreferences;
 }
 
 export interface PollOption {
@@ -44,6 +53,8 @@ export interface Poll {
   canVote: boolean;
   /** Invited voters of a private poll; only sent to its creator and to admins. */
   voters: PollVoter[] | null;
+  /** GROUP polls: the group conversation whose members can see and vote. */
+  group: { id: string; name: string } | null;
 }
 
 export interface PollVoter {
@@ -73,6 +84,7 @@ export interface Notification {
   type: "POLL_CLOSED";
   message: string;
   pollId: string | null;
+  pollQuestion: string | null;
   isRead: boolean;
   createdAt: string;
 }
@@ -106,4 +118,64 @@ export interface PollFormValues {
   access: PollAccess;
   /** Usernames or emails of the invited voters (private polls only). */
   voters: string[];
+  /** Group conversation of a GROUP poll. */
+  groupId?: string | null;
+}
+
+// ---------------- Messaging ----------------
+
+export type ConversationType = "DIRECT" | "GROUP";
+export type MemberRole = "ADMIN" | "MEMBER";
+
+export interface ConversationMember {
+  id: string;
+  username: string;
+  role: MemberRole;
+  lastReadSeq: number;
+  joinedAt: string;
+  online: boolean;
+}
+
+export interface MessagePoll {
+  id: string;
+  question: string;
+  status: PollStatus;
+  endTime: string;
+  optionCount: number;
+}
+
+export interface Message {
+  id: string;
+  kind: "TEXT" | "POLL";
+  poll: MessagePoll | null;
+  seq: number;
+  conversationId: string;
+  sender: { id: string; username: string } | null;
+  body: string;
+  clientId: string;
+  createdAt: string;
+}
+
+/** Client-side state of a message being sent (never sent by the server). */
+export interface PendingMessage {
+  clientId: string;
+  conversationId: string;
+  body: string;
+  createdAt: string;
+  state: "sending" | "failed";
+}
+
+export interface Conversation {
+  id: string;
+  type: ConversationType;
+  name: string | null;
+  createdBy: string | null;
+  myRole: MemberRole;
+  myLastReadSeq: number;
+  members: ConversationMember[];
+  lastMessage: Message | null;
+  unreadCount: number;
+  lastMessageAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }

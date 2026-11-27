@@ -9,16 +9,18 @@ import { DoubleRule } from "@/components/decor";
 import { ResultsBars } from "@/components/ResultsBars";
 import { Alert, Badge, Button, ButtonLink, LiveIndicator, PageLoader, SectionTitle, StatusBadge } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
+import { useI18n } from "@/contexts/PreferencesContext";
 import { useToast } from "@/contexts/ToastContext";
 import { usePollRoom } from "@/hooks/usePollRoom";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { api, ApiError } from "@/lib/api";
-import { formatShortDate, formatTime, serial } from "@/lib/format";
+import { serial } from "@/lib/format";
 import type { Poll } from "@/types";
 
 export function PollDetail({ id }: { id: string }) {
   const { ready } = useRequireAuth();
   const { user } = useAuth();
+  const { t, rich, errorText, fmt } = useI18n();
   const toast = useToast();
   const router = useRouter();
   const [poll, setPoll] = useState<Poll | null>(null);
@@ -32,9 +34,9 @@ export function PollDetail({ id }: { id: string }) {
   const onClosed = useCallback(
     (payload: { closedAt: string }) => {
       setPoll((p) => (p ? { ...p, status: "CLOSED", isOpen: false, closedAt: payload.closedAt } : p));
-      toast("Le scrutin vient d’être clos. Les résultats définitifs sont affichés.", "info");
+      toast(t("pollDetail.justClosed"), "info");
     },
-    [toast],
+    [toast, t],
   );
   const { results, setResults, connected, roomError } = usePollRoom(id, onClosed);
 
@@ -53,8 +55,8 @@ export function PollDetail({ id }: { id: string }) {
   if (loadError || !poll) {
     return (
       <div className="mx-auto max-w-xl space-y-4">
-        <Alert>{loadError?.status === 404 ? "Ce sondage n’existe pas ou n’est pas accessible." : loadError?.message}</Alert>
-        <ButtonLink href="/polls" variant="secondary">Retour aux sondages</ButtonLink>
+        <Alert>{loadError?.status === 404 ? t("pollDetail.notFound") : errorText(loadError)}</Alert>
+        <ButtonLink href="/polls" variant="secondary">{t("pollDetail.backToPolls")}</ButtonLink>
       </div>
     );
   }
@@ -72,10 +74,10 @@ export function PollDetail({ id }: { id: string }) {
       const data = await api.vote(poll.id, selected);
       setPoll({ ...poll, myVoteOptionId: selected, totalVotes: data.results.totalVotes });
       setResults(data.results);
-      toast("Bulletin déposé. Votre vote est enregistré.", "success");
+      toast(t("pollDetail.voteCast"), "success");
     } catch (e) {
       const err = e as ApiError;
-      setVoteError(err.message);
+      setVoteError(errorText(err));
       if (err.code === "ALREADY_VOTED" || err.code === "POLL_CLOSED") {
         api.getPoll(poll.id).then(({ poll }) => setPoll(poll)).catch(() => undefined);
       }
@@ -90,7 +92,7 @@ export function PollDetail({ id }: { id: string }) {
       await action();
       toast(success, "success");
     } catch (e) {
-      toast((e as ApiError).message, "error");
+      toast(errorText(e), "error");
     } finally {
       setBusy(false);
     }
@@ -98,42 +100,56 @@ export function PollDetail({ id }: { id: string }) {
 
   return (
     <article>
-      <nav className="kicker flex items-center gap-2 text-umber" aria-label="Fil d’Ariane">
-        <Link href="/polls" className="hover:text-ink">Sondages</Link>
+      <nav className="kicker flex items-center gap-2 text-umber" aria-label={t("pollDetail.breadcrumb")}>
+        <Link href="/polls" className="hover:text-ink">{t("nav.polls")}</Link>
         <span aria-hidden="true">/</span>
-        <span className="font-mono normal-case tracking-normal">Scrutin n° {serial(poll.id)}</span>
+        {poll.group && (
+          <>
+            <Link href={`/messages/${poll.group.id}`} className="hover:text-ink"><bdi>{poll.group.name}</bdi></Link>
+            <span aria-hidden="true">/</span>
+          </>
+        )}
+        <span className="font-mono normal-case tracking-normal">{t("pollDetail.serial", { serial: serial(poll.id) })}</span>
       </nav>
 
       {/* Article header */}
       <header className="mt-6 max-w-4xl">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <StatusBadge status={poll.status} isOpen={poll.isOpen} />
-          <Badge>{poll.creationMode === "AI" ? "Rédaction assistée par IA" : "Rédaction manuelle"}</Badge>
-          <Badge>{poll.resultsVisibility === "LIVE" ? "Résultats en direct" : "Résultats à la clôture"}</Badge>
-          {poll.access === "PRIVATE" && <Badge className="text-ink">Scrutin privé</Badge>}
+          <Badge>{poll.creationMode === "AI" ? t("poll.aiWritten") : t("poll.manualWritten")}</Badge>
+          <Badge>{poll.resultsVisibility === "LIVE" ? t("poll.liveResults") : t("poll.afterCloseResults")}</Badge>
+          {poll.access === "PRIVATE" && <Badge className="text-ink">{t("poll.privateLong")}</Badge>}
+          {poll.group && <Badge className="text-accent">{t("poll.groupBadge", { name: poll.group.name })}</Badge>}
           {poll.status !== "DRAFT" && <LiveIndicator connected={connected} />}
         </div>
-        <h1 className="mt-5 font-serif text-4xl font-black leading-[1.05] text-ink sm:text-6xl">{poll.question}</h1>
-        {poll.description && <p className="mt-5 font-serif text-xl italic leading-snug text-umber">{poll.description}</p>}
+        <h1 className="bidi-auto mt-5 font-serif text-4xl font-black leading-[1.05] text-ink sm:text-6xl">{poll.question}</h1>
+        {poll.description && <p className="bidi-auto mt-5 font-serif text-xl italic leading-snug text-umber">{poll.description}</p>}
       </header>
 
       {/* Byline */}
       <div className="mt-8 flex flex-col gap-4 border-y border-rule py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
           <span className="text-umber">
-            Par <span className="font-medium text-ink">{poll.creator.username}</span>
+            {rich("common.by", { author: <bdi className="font-medium text-ink">{poll.creator.username}</bdi> })}
           </span>
           <span className="font-mono text-xs text-umber">
-            {poll.publishedAt ? `Publié le ${formatShortDate(poll.publishedAt)} à ${formatTime(poll.publishedAt)}` : `Créé le ${formatShortDate(poll.createdAt)}`}
+            {poll.publishedAt
+              ? t("pollDetail.publishedOn", { date: fmt.shortDate(poll.publishedAt), time: fmt.time(poll.publishedAt) })
+              : t("pollDetail.createdOn", { date: fmt.shortDate(poll.createdAt) })}
           </span>
+          {poll.group && (
+            <Link href={`/messages/${poll.group.id}`} className="kicker text-accent hover:text-ink">
+              {t("pollDetail.openGroup")}
+            </Link>
+          )}
         </div>
         <div>
           {poll.status === "CLOSED" && poll.closedAt ? (
-            <span className="font-mono text-sm text-ink">Clos le {formatShortDate(poll.closedAt)} à {formatTime(poll.closedAt)}</span>
+            <span className="font-mono text-sm text-ink">{t("pollDetail.closedOn", { date: fmt.shortDate(poll.closedAt), time: fmt.time(poll.closedAt) })}</span>
           ) : poll.status === "ACTIVE" ? (
             <Countdown endTime={poll.endTime} startTime={poll.publishedAt} onExpire={() => setPoll((p) => (p ? { ...p, isOpen: false } : p))} />
           ) : (
-            <span className="font-mono text-sm text-umber">Clôture prévue le {formatShortDate(poll.endTime)} à {formatTime(poll.endTime)}</span>
+            <span className="font-mono text-sm text-umber">{t("pollDetail.plannedClose", { date: fmt.shortDate(poll.endTime), time: fmt.time(poll.endTime) })}</span>
           )}
         </div>
       </div>
@@ -141,11 +157,11 @@ export function PollDetail({ id }: { id: string }) {
       {/* Editor's actions */}
       {canEdit && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="kicker mr-2 text-umber">Édition</span>
+          <span className="kicker me-2 text-umber">{t("pollDetail.editing")}</span>
           {poll.status === "DRAFT" && isOwner && (
             <>
-              <ButtonLink href={`/polls/${poll.id}/edit`} variant="secondary" size="sm">Modifier</ButtonLink>
-              <Button size="sm" loading={busy} onClick={() => runAction(async () => setPoll((await api.publishPoll(poll.id)).poll), "Sondage publié.")}>Publier</Button>
+              <ButtonLink href={`/polls/${poll.id}/edit`} variant="secondary" size="sm">{t("poll.edit")}</ButtonLink>
+              <Button size="sm" loading={busy} onClick={() => runAction(async () => setPoll((await api.publishPoll(poll.id)).poll), t("poll.published"))}>{t("poll.publish")}</Button>
             </>
           )}
           {poll.status === "ACTIVE" && (
@@ -153,9 +169,9 @@ export function PollDetail({ id }: { id: string }) {
               variant="secondary"
               size="sm"
               loading={busy}
-              onClick={() => confirm("Clore ce scrutin maintenant ?") && runAction(async () => setPoll((await api.closePoll(poll.id)).poll), "Scrutin clos.")}
+              onClick={() => confirm(t("poll.confirmClose")) && runAction(async () => setPoll((await api.closePoll(poll.id)).poll), t("poll.closed"))}
             >
-              Clore le scrutin
+              {t("poll.close")}
             </Button>
           )}
           {(poll.status === "DRAFT" || isAdmin) && (
@@ -164,14 +180,14 @@ export function PollDetail({ id }: { id: string }) {
               size="sm"
               loading={busy}
               onClick={() =>
-                confirm("Supprimer définitivement ce sondage ?") &&
+                confirm(t("poll.confirmDelete")) &&
                 runAction(async () => {
                   await api.deletePoll(poll.id);
                   router.push("/my-polls");
-                }, "Sondage supprimé.")
+                }, t("poll.deleted"))
               }
             >
-              Supprimer
+              {t("poll.delete")}
             </Button>
           )}
         </div>
@@ -179,23 +195,23 @@ export function PollDetail({ id }: { id: string }) {
 
       {poll.voters && (
         <div className="mt-6 max-w-4xl text-sm text-umber">
-          <span className="kicker mr-3">Votants invités ({poll.voters.length})</span>
+          <span className="kicker me-3">{t("pollDetail.invited", { count: poll.voters.length })}</span>
           {poll.voters.length ? (
-            <span className="font-mono text-xs text-ink">{poll.voters.map((v) => v.username).join(", ")}</span>
+            <bdi className="font-mono text-xs text-ink">{poll.voters.map((v) => v.username).join(", ")}</bdi>
           ) : (
-            <span className="italic">Aucun pour l’instant : invitez au moins une personne avant de publier.</span>
+            <span className="italic">{t("pollDetail.noInvited")}</span>
           )}
         </div>
       )}
 
       {poll.status === "DRAFT" ? (
         <div className="mt-10 max-w-2xl">
-          <Alert kind="info">Ce sondage est un brouillon : vous seul pouvez le lire. Publiez-le pour ouvrir le scrutin.</Alert>
+          <Alert kind="info">{t("pollDetail.draftNotice")}</Alert>
           <ol className="mt-8 border-t border-ink">
             {poll.options.map((o, i) => (
               <li key={o.id} className="flex gap-4 border-b border-rule py-3 font-serif text-lg">
                 <span className="font-mono text-xs leading-7 text-umber">{String(i + 1).padStart(2, "0")}</span>
-                {o.text}
+                <bdi>{o.text}</bdi>
               </li>
             ))}
           </ol>
@@ -206,16 +222,16 @@ export function PollDetail({ id }: { id: string }) {
           <div className="mt-10 grid gap-12 lg:grid-cols-12">
             <section className="lg:col-span-7" aria-labelledby="vote">
               <SectionTitle>
-                <span id="vote">Votre vote</span>
+                <span id="vote">{t("pollDetail.yourVote")}</span>
               </SectionTitle>
               <Ballot poll={poll} isOwner={isOwner} selected={selected} onSelect={setSelected} onSubmit={submitVote} voting={voting} error={voteError} />
             </section>
-            <section className="lg:col-span-5 lg:border-l lg:border-rule lg:pl-10" aria-labelledby="resultats">
+            <section className="lg:col-span-5 lg:border-s lg:border-rule lg:ps-10" aria-labelledby="resultats">
               <SectionTitle>
-                <span id="resultats">{poll.status === "CLOSED" ? "Résultats définitifs" : "Dépouillement"}</span>
+                <span id="resultats">{poll.status === "CLOSED" ? t("pollDetail.finalResults") : t("pollDetail.counting")}</span>
               </SectionTitle>
-              {roomError && <div className="mb-4"><Alert kind="warning">{roomError}</Alert></div>}
-              {results ? <ResultsBars results={results} myVoteOptionId={poll.myVoteOptionId} /> : <PageLoader label="Dépouillement en cours" />}
+              {roomError && <div className="mb-4"><Alert kind="warning">{t("pollDetail.roomError")}</Alert></div>}
+              {results ? <ResultsBars results={results} myVoteOptionId={poll.myVoteOptionId} /> : <PageLoader label={t("pollDetail.countingInProgress")} />}
             </section>
           </div>
         </>

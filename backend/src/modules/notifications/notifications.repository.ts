@@ -6,6 +6,7 @@ export const toNotification = (r: NotificationRow): Notification => ({
   type: r.type,
   message: r.message,
   pollId: r.poll_id,
+  pollQuestion: r.poll_question,
   isRead: r.is_read,
   createdAt: r.created_at.toISOString(),
 });
@@ -28,7 +29,7 @@ export async function insertClosureNotifications(db: Queryable, pollIds: string[
             ) recipients ON TRUE
       WHERE p.id = ANY($1::uuid[])
      ON CONFLICT (user_id, poll_id, type) DO NOTHING
-     RETURNING *`,
+     RETURNING *, (SELECT question FROM polls WHERE polls.id = notifications.poll_id) AS poll_question`,
     [pollIds],
   );
   return rows;
@@ -36,9 +37,10 @@ export async function insertClosureNotifications(db: Queryable, pollIds: string[
 
 export async function listNotifications(userId: string, opts: { unreadOnly: boolean; limit: number }) {
   const { rows } = await query<NotificationRow>(
-    `SELECT * FROM notifications
-      WHERE user_id = $1 ${opts.unreadOnly ? 'AND is_read = FALSE' : ''}
-      ORDER BY created_at DESC LIMIT $2`,
+    `SELECT n.*, p.question AS poll_question
+       FROM notifications n LEFT JOIN polls p ON p.id = n.poll_id
+      WHERE n.user_id = $1 ${opts.unreadOnly ? 'AND n.is_read = FALSE' : ''}
+      ORDER BY n.created_at DESC LIMIT $2`,
     [userId, opts.limit],
   );
   const unread = await query<{ n: number }>(
@@ -51,7 +53,8 @@ export async function listNotifications(userId: string, opts: { unreadOnly: bool
 /** The user_id condition guarantees a user can only modify their own notifications. */
 export async function markAsRead(userId: string, id: string) {
   const { rows } = await query<NotificationRow>(
-    'UPDATE notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2 RETURNING *',
+    `UPDATE notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2
+     RETURNING *, (SELECT question FROM polls WHERE polls.id = notifications.poll_id) AS poll_question`,
     [id, userId],
   );
   return rows[0] ? toNotification(rows[0]) : null;

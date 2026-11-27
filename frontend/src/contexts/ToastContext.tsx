@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import { useI18n } from "./PreferencesContext";
 
 type ToastKind = "success" | "error" | "info";
 interface Toast {
@@ -13,8 +14,9 @@ const ToastContext = createContext<(message: string, kind?: ToastKind) => void>(
 
 let nextId = 1;
 
-/** Small notification banners in the bottom-right corner, auto-dismissed after 5 s. */
+/** Small notification banners in the bottom end corner (bottom-left in Arabic), auto-dismissed after 5 s. */
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const push = useCallback((message: string, kind: ToastKind = "info") => {
@@ -26,11 +28,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={push}>
       {children}
-      <div className="fixed bottom-4 left-4 right-4 z-50 flex flex-col gap-2 sm:left-auto sm:w-96" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} role="status" className="animate-toast-in border border-ink bg-paper px-4 py-3 text-sm text-ink shadow-[4px_4px_0_#38291f]">
-            <span className="kicker mr-2 text-umber">{t.kind === "error" ? "Erratum" : t.kind === "success" ? "Confirmé" : "Dépêche"}</span>
-            {t.message}
+      <div className="fixed bottom-4 start-4 end-4 z-50 flex flex-col gap-2 sm:start-auto sm:w-96" aria-live="polite">
+        {toasts.map((toast) => (
+          <div key={toast.id} role="status" className="animate-toast-in border border-ink bg-elevated px-4 py-3 text-sm text-ink shadow-[4px_4px_0_var(--foreground)] rtl:shadow-[-4px_4px_0_var(--foreground)]">
+            <span className="kicker me-2 text-umber">{t(`toast.${toast.kind}`)}</span>
+            <span className="bidi-auto">{toast.message}</span>
           </div>
         ))}
       </div>

@@ -1,11 +1,12 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { Socket } from "socket.io-client";
 import { api } from "@/lib/api";
 import { createSocket } from "@/lib/socket";
 import type { Notification } from "@/types";
 import { useAuth } from "./AuthContext";
+import { useI18n } from "./PreferencesContext";
 import { useToast } from "./ToastContext";
 
 interface SocketContextValue {
@@ -25,6 +26,12 @@ const SocketContext = createContext<SocketContextValue>({ socket: null, connecte
 export function SocketProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const toast = useToast();
+  const { t } = useI18n();
+  // Read through a ref: changing language must not reconnect the socket.
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -40,7 +47,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     s.on("disconnect", () => setConnected(false));
     s.on("notification:new", (n: Notification) => {
       setUnreadCount((c) => c + 1);
-      toast(n.message, "info");
+      toast(n.pollQuestion ? tRef.current(`notifications.${n.type}`, { question: n.pollQuestion }) : n.message, "info");
     });
 
     // Initial unread counter (notifications received while offline).

@@ -9,8 +9,16 @@ import type { OptionResult, Poll, PollAccess, PollRow, PollStatus, PollVoter } f
 /** true when the requesting user ($1) is on the invited voters list of poll p. */
 const IS_INVITED = 'EXISTS (SELECT 1 FROM poll_voters pv WHERE pv.poll_id = p.id AND pv.user_id = $1)';
 
-/** Rows the requesting user ($1) may see in lists: public polls, their own, and private polls they are invited to. */
-const VISIBLE_TO_VIEWER = `(p.access = 'PUBLIC' OR p.created_by = $1 OR ${IS_INVITED})`;
+/** true when the requesting user ($1) currently belongs to the group of a GROUP poll. */
+const IS_GROUP_MEMBER =
+  'EXISTS (SELECT 1 FROM conversation_members cm WHERE cm.conversation_id = p.group_id AND cm.user_id = $1)';
+
+/**
+ * Rows the requesting user ($1) may see in lists: public polls, their own,
+ * private polls they are invited to, and polls of the groups they belong to.
+ */
+const VISIBLE_TO_VIEWER = `(p.access = 'PUBLIC' OR p.created_by = $1
+  OR (p.access = 'PRIVATE' AND ${IS_INVITED}) OR (p.access = 'GROUP' AND ${IS_GROUP_MEMBER}))`;
 
 const POLL_SELECT = `
   SELECT p.*,
@@ -23,9 +31,13 @@ const POLL_SELECT = `
            '[]'::json) AS options,
          (SELECT COUNT(*) FROM votes v WHERE v.poll_id = p.id)::int AS total_votes,
          (SELECT v.option_id FROM votes v WHERE v.poll_id = p.id AND v.user_id = $1) AS my_vote_option_id,
-         (p.created_by <> $1 AND (p.access = 'PUBLIC' OR ${IS_INVITED})) AS can_vote
+         g.name AS group_name,
+         -- Group polls are a group decision: every current member votes, the author included.
+         CASE WHEN p.access = 'GROUP' THEN ${IS_GROUP_MEMBER}
+              ELSE (p.created_by <> $1 AND (p.access = 'PUBLIC' OR ${IS_INVITED})) END AS can_vote
     FROM polls p
-    JOIN users u ON u.id = p.created_by`;
+    JOIN users u ON u.id = p.created_by
+    LEFT JOIN conversations g ON g.id = p.group_id`;
 
 type FullPollRow = PollRow & {
   creator_username: string;
@@ -34,6 +46,7 @@ type FullPollRow = PollRow & {
   total_votes: number;
   my_vote_option_id: string | null;
   can_vote: boolean;
+  group_name: string | null;
 };
 
 function toPoll(r: FullPollRow): Poll {
@@ -57,6 +70,7 @@ function toPoll(r: FullPollRow): Poll {
     myVoteOptionId: r.my_vote_option_id,
     canVote: r.can_vote,
     voters: null,
+    group: r.group_id ? { id: r.group_id, name: r.group_name ?? '' } : null,
   };
 }
 
@@ -119,13 +133,13 @@ export async function insertPoll(
   db: Queryable,
   data: {
     question: string; description?: string | null; createdBy: string; creationMode: string;
-    resultsVisibility: string; access: PollAccess; endTime: Date;
+    resultsVisibility: string; access: PollAccess; endTime: Date; groupId: string | null;
   },
 ): Promise<string> {
   const { rows } = await db.query<{ id: string }>(
-    `INSERT INTO polls (question, description, created_by, creation_mode, results_visibility, access, end_time)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-    [data.question, data.description ?? null, data.createdBy, data.creationMode, data.resultsVisibility, data.access, data.endTime],
+    `INSERT INTO polls (question, description, created_by, creation_mode, results_visibility, access, end_time, group_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    [data.question, data.description ?? null, data.createdBy, data.creationMode, data.resultsVisibility, data.access, data.endTime, data.groupId],
   );
   return rows[0].id;
 }
@@ -147,7 +161,10 @@ export async function replaceOptions(db: Queryable, pollId: string, options: str
 export async function updatePollFields(
   db: Queryable,
   id: string,
-  data: { question?: string; description?: string | null; endTime?: Date; resultsVisibility?: string; access?: PollAccess },
+  data: {
+    question?: string; description?: string | null; endTime?: Date; resultsVisibility?: string;
+    access?: PollAccess; groupId?: string | null;
+  },
 ) {
   await db.query(
     `UPDATE polls SET
@@ -155,7 +172,8 @@ export async function updatePollFields(
        description        = CASE WHEN $3::boolean THEN $4 ELSE description END,
        end_time           = COALESCE($5, end_time),
        results_visibility = COALESCE($6, results_visibility),
-       access             = COALESCE($7, access)
+       access             = COALESCE($7, access),
+       group_id           = CASE WHEN $8::boolean THEN $9::uuid ELSE group_id END
      WHERE id = $1`,
     [
       id,
@@ -165,8 +183,28 @@ export async function updatePollFields(
       data.endTime ?? null,
       data.resultsVisibility ?? null,
       data.access ?? null,
+      data.groupId !== undefined,
+      data.groupId ?? null,
     ],
   );
+}
+
+/** Polls of one group, newest first: published ones, plus the viewer's own drafts. */
+export async function listGroupPolls(viewerId: string, groupId: string) {
+  const { rows } = await query<FullPollRow>(
+    `${POLL_SELECT} WHERE p.group_id = $2 AND (p.status <> 'DRAFT' OR p.created_by = $1) ORDER BY p.created_at DESC LIMIT 100`,
+    [viewerId, groupId],
+  );
+  return rows.map(toPoll);
+}
+
+export async function isGroupMember(groupId: string, userId: string, db: Queryable = pool): Promise<boolean> {
+  const { rowCount } = await db.query(
+    `SELECT 1 FROM conversation_members m JOIN conversations c ON c.id = m.conversation_id
+      WHERE m.conversation_id = $1 AND m.user_id = $2 AND c.type = 'GROUP'`,
+    [groupId, userId],
+  );
+  return (rowCount ?? 0) > 0;
 }
 
 /** Replaces the whole invited voters list of a poll. */

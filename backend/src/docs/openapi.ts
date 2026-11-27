@@ -58,6 +58,7 @@ export const openApiDocument = {
           username: { type: 'string' },
           email: { type: 'string', format: 'email' },
           role: { enum: ['user', 'admin'] },
+          preferences: ref('Preferences'),
           isActive: { type: 'boolean' },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
@@ -86,8 +87,16 @@ export const openApiDocument = {
           options: { type: 'array', items: ref('PollOption') },
           totalVotes: { type: 'integer' },
           myVoteOptionId: { type: ['string', 'null'], format: 'uuid' },
-          access: { enum: ['PUBLIC', 'PRIVATE'] },
-          canVote: { type: 'boolean', description: 'false for the creator, and for non-invited users of a PRIVATE poll' },
+          access: { enum: ['PUBLIC', 'PRIVATE', 'GROUP'] },
+          canVote: {
+            type: 'boolean',
+            description: 'PUBLIC/PRIVATE: false for the creator and for non-invited users. GROUP: true for every current member, the creator included',
+          },
+          group: {
+            type: ['object', 'null'],
+            description: 'GROUP polls: the group conversation whose members can see and vote',
+            properties: { id: { type: 'string', format: 'uuid' }, name: { type: 'string' } },
+          },
           voters: {
             type: ['array', 'null'],
             description: 'Invited voters of a PRIVATE poll (creator and admins only)',
@@ -105,13 +114,14 @@ export const openApiDocument = {
           endTime: { type: 'string', format: 'date-time' },
           resultsVisibility: { enum: ['LIVE', 'AFTER_CLOSE'], default: 'LIVE' },
           creationMode: { enum: ['MANUAL', 'AI'], default: 'MANUAL' },
-          access: { enum: ['PUBLIC', 'PRIVATE'], default: 'PUBLIC' },
+          access: { enum: ['PUBLIC', 'PRIVATE', 'GROUP'], default: 'PUBLIC' },
           voters: {
             type: 'array',
             maxItems: 500,
             items: { type: 'string' },
             description: 'PRIVATE polls: usernames or emails of the invited voters (the creator cannot be one of them)',
           },
+          groupId: { type: ['string', 'null'], format: 'uuid', description: 'GROUP polls (required): a group conversation the creator belongs to' },
         },
       },
       Results: {
@@ -144,8 +154,60 @@ export const openApiDocument = {
           type: { const: 'POLL_CLOSED' },
           message: { type: 'string' },
           pollId: { type: ['string', 'null'] },
+          pollQuestion: { type: ['string', 'null'], description: 'Lets clients word the notice in the reader’s language' },
           isRead: { type: 'boolean' },
           createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      Preferences: {
+        type: 'object',
+        properties: {
+          locale: { enum: ['fr', 'en', 'ar', null], description: 'null = follow the browser' },
+          theme: { enum: ['system', 'light', 'dark'] },
+          messageNotifications: { type: 'boolean' },
+        },
+      },
+      Member: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          username: { type: 'string' },
+          role: { enum: ['ADMIN', 'MEMBER'] },
+          lastReadSeq: { type: 'integer', description: 'seq of the last message this member has read (read receipts)' },
+          joinedAt: { type: 'string', format: 'date-time' },
+          online: { type: 'boolean' },
+        },
+      },
+      Message: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          kind: { enum: ['TEXT', 'POLL'], description: 'POLL: a group poll announcement (body = its question)' },
+          poll: {
+            type: ['object', 'null'],
+            properties: { id: { type: 'string' }, question: { type: 'string' }, status: { type: 'string' }, endTime: { type: 'string' }, optionCount: { type: 'integer' } },
+          },
+          seq: { type: 'integer', description: 'Strictly increasing ordering key (pagination cursor)' },
+          conversationId: { type: 'string', format: 'uuid' },
+          sender: { type: ['object', 'null'], properties: { id: { type: 'string' }, username: { type: 'string' } } },
+          body: { type: 'string', maxLength: 2000 },
+          clientId: { type: 'string', format: 'uuid' },
+          createdAt: { type: 'string', format: 'date-time' },
+        },
+      },
+      Conversation: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          type: { enum: ['DIRECT', 'GROUP'] },
+          name: { type: ['string', 'null'], description: 'Groups only' },
+          createdBy: { type: ['string', 'null'] },
+          myRole: { enum: ['ADMIN', 'MEMBER'] },
+          myLastReadSeq: { type: 'integer' },
+          members: { type: 'array', items: ref('Member') },
+          lastMessage: { oneOf: [ref('Message'), { type: 'null' }] },
+          unreadCount: { type: 'integer' },
+          lastMessageAt: { type: ['string', 'null'], format: 'date-time' },
         },
       },
     },
@@ -365,6 +427,138 @@ export const openApiDocument = {
     },
     '/notifications/read-all': {
       patch: { tags: ['Notifications'], security: secured, summary: 'Mark all as read', responses: { 200: ok('OK', { updated: { type: 'integer' } }), 401: E[401] } },
+    },
+    '/users/me/preferences': {
+      patch: {
+        tags: ['Users'],
+        security: secured,
+        summary: 'Update my interface preferences',
+        requestBody: body(ref('Preferences')),
+        responses: { 200: ok('OK', { user: ref('User') }), 400: E[400], 401: E[401] },
+      },
+    },
+    '/users/directory': {
+      get: {
+        tags: ['Users'],
+        security: secured,
+        summary: 'Find people by username (new conversations); never returns emails',
+        parameters: [
+          { name: 'search', in: 'query', required: true, schema: { type: 'string', maxLength: 30 } },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 8, maximum: 20 } },
+        ],
+        responses: { 200: ok('OK', { users: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, username: { type: 'string' } } } } }), 401: E[401] },
+      },
+    },
+    '/conversations': {
+      get: {
+        tags: ['Messaging'],
+        security: secured,
+        summary: 'My conversations, most recent activity first',
+        parameters: [{ name: 'search', in: 'query', schema: { type: 'string' }, description: 'Group name or participant username' }],
+        responses: { 200: ok('OK', { conversations: { type: 'array', items: ref('Conversation') } }), 401: E[401] },
+      },
+    },
+    '/conversations/unread-count': {
+      get: { tags: ['Messaging'], security: secured, summary: 'Total unread messages', responses: { 200: ok('OK', { total: { type: 'integer' } }), 401: E[401] } },
+    },
+    '/conversations/direct': {
+      post: {
+        tags: ['Messaging'],
+        security: secured,
+        summary: 'Open the private conversation with a user (201 created, 200 existing)',
+        requestBody: body({ type: 'object', required: ['userId'], properties: { userId: { type: 'string', format: 'uuid' } } }),
+        responses: { 200: ok('Existing', { conversation: ref('Conversation') }), 201: ok('Created', { conversation: ref('Conversation') }), 400: E[400], 404: E[404] },
+      },
+    },
+    '/conversations/groups': {
+      post: {
+        tags: ['Messaging'],
+        security: secured,
+        summary: 'Create a group (the creator becomes ADMIN)',
+        requestBody: body({
+          type: 'object',
+          required: ['name', 'memberIds'],
+          properties: { name: { type: 'string', maxLength: 80 }, memberIds: { type: 'array', minItems: 1, maxItems: 49, items: { type: 'string', format: 'uuid' } } },
+        }),
+        responses: { 201: ok('Created', { conversation: ref('Conversation') }), 400: E[400], 401: E[401] },
+      },
+    },
+    '/conversations/{id}': {
+      get: { tags: ['Messaging'], security: secured, summary: 'One conversation (members only)', parameters: idParam, responses: { 200: ok('OK', { conversation: ref('Conversation') }), 404: E[404] } },
+      patch: {
+        tags: ['Messaging'],
+        security: secured,
+        summary: 'Rename a group (group admins)',
+        parameters: idParam,
+        requestBody: body({ type: 'object', required: ['name'], properties: { name: { type: 'string', maxLength: 80 } } }),
+        responses: { 200: ok('OK', { conversation: ref('Conversation') }), 400: E[400], 403: E[403], 404: E[404] },
+      },
+    },
+    '/conversations/{id}/members': {
+      post: {
+        tags: ['Messaging'],
+        security: secured,
+        summary: 'Add members to a group (group admins)',
+        parameters: idParam,
+        requestBody: body({ type: 'object', required: ['userIds'], properties: { userIds: { type: 'array', items: { type: 'string', format: 'uuid' } } } }),
+        responses: { 200: ok('OK', { conversation: ref('Conversation') }), 400: E[400], 403: E[403], 404: E[404] },
+      },
+    },
+    '/conversations/{id}/members/{userId}': {
+      patch: {
+        tags: ['Messaging'],
+        security: secured,
+        summary: 'Change a member’s role (group admins); 409 LAST_ADMIN',
+        parameters: [...idParam, { name: 'userId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        requestBody: body({ type: 'object', required: ['role'], properties: { role: { enum: ['ADMIN', 'MEMBER'] } } }),
+        responses: { 200: ok('OK', { conversation: ref('Conversation') }), 403: E[403], 404: E[404], 409: E[409] },
+      },
+      delete: {
+        tags: ['Messaging'],
+        security: secured,
+        summary: 'Remove a member (group admins) or leave (userId = yourself)',
+        parameters: [...idParam, { name: 'userId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: { 200: ok('OK', { left: { type: 'boolean' } }), 400: E[400], 403: E[403], 404: E[404] },
+      },
+    },
+    '/conversations/{id}/messages': {
+      get: {
+        tags: ['Messaging'],
+        security: secured,
+        summary: 'History, oldest first, keyset-paginated on seq',
+        parameters: [
+          ...idParam,
+          { name: 'before', in: 'query', schema: { type: 'integer' }, description: 'Older page: messages with seq < before' },
+          { name: 'after', in: 'query', schema: { type: 'integer' }, description: 'Catch-up: messages with seq > after' },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 30, maximum: 100 } },
+        ],
+        responses: { 200: ok('OK', { messages: { type: 'array', items: ref('Message') }, hasMore: { type: 'boolean' } }), 404: E[404] },
+      },
+      post: {
+        tags: ['Messaging'],
+        security: secured,
+        summary: 'Send a message (201 new, 200 retry of an existing clientId); 429 RATE_LIMITED',
+        parameters: idParam,
+        requestBody: body({
+          type: 'object',
+          required: ['body', 'clientId'],
+          properties: { body: { type: 'string', minLength: 1, maxLength: 2000 }, clientId: { type: 'string', format: 'uuid' } },
+        }),
+        responses: { 200: ok('Duplicate', { message: ref('Message') }), 201: ok('Created', { message: ref('Message') }), 400: E[400], 404: E[404], 429: err('RATE_LIMITED') },
+      },
+    },
+    '/conversations/{id}/read': {
+      post: {
+        tags: ['Messaging'],
+        security: secured,
+        summary: 'Mark as read up to seq (default: newest); never moves backwards',
+        parameters: idParam,
+        requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { seq: { type: 'integer' } } } } } },
+        responses: { 200: ok('OK', { lastReadSeq: { type: 'integer' } }), 404: E[404] },
+      },
+    },
+    '/conversations/{id}/polls': {
+      get: { tags: ['Messaging'], security: secured, summary: 'Polls of a group (members only)', parameters: idParam, responses: { 200: ok('OK', { polls: { type: 'array', items: ref('Poll') } }), 404: E[404] } },
     },
     '/notifications/{id}/read': {
       patch: {

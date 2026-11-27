@@ -30,3 +30,18 @@ export const adminUpdateUserSchema = z
 export const lookupUserQuerySchema = z.object({
   identifier: z.string({ error: "Nom d'utilisateur ou email requis" }).trim().min(1, "Nom d'utilisateur ou email requis").max(255),
 });
+
+export const updatePreferencesSchema = z
+  .object({
+    locale: z.enum(['fr', 'en', 'ar']).nullable().optional(),
+    theme: z.enum(['system', 'light', 'dark']).optional(),
+    messageNotifications: z.boolean().optional(),
+  })
+  .refine((d) => d.locale !== undefined || d.theme !== undefined || d.messageNotifications !== undefined, {
+    message: 'Aucune modification fournie',
+  });
+
+export const directoryQuerySchema = z.object({
+  search: z.string().trim().min(1, 'Saisissez au moins un caractère').max(30),
+  limit: z.coerce.number().int().min(1).max(20).default(8),
+});

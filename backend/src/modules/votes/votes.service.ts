@@ -2,7 +2,7 @@ import { withTransaction, query } from '../../db/pool';
 import { AppError, isPgError, notFound, PG_ERRORS } from '../../utils/errors';
 import { broadcastResults } from '../../socket/realtime';
 import { buildResults } from '../polls/polls.service';
-import { isInvitedVoter, lockPoll } from '../polls/polls.repository';
+import { isGroupMember, isInvitedVoter, lockPoll } from '../polls/polls.repository';
 import type { PollResults } from '../polls/polls.types';
 import type { PublicUser } from '../users/users.types';
 
@@ -20,6 +20,7 @@ export interface CastVoteResult {
  *  4. the end time has not passed          → compared with the DATABASE clock (now())
  *  5. the user is not the poll's creator   → ownership check
  *  6. a PRIVATE poll: the user is invited  → poll_voters lookup
+ *     a GROUP poll: the user is a current member of the group (author included)
  *  7. the option belongs to this poll      → explicit check + composite foreign key
  *  8. the user has not voted yet           → UNIQUE (poll_id, user_id)
  *
@@ -37,10 +38,17 @@ export async function castVote(user: PublicUser, pollId: string, optionId: strin
     if (poll.access === 'PRIVATE' && !invited && poll.created_by !== user.id && user.role !== 'admin') {
       throw notFound('Sondage introuvable');
     }
+    const member = poll.access === 'GROUP' && (await isGroupMember(poll.group_id!, user.id, tx));
+    if (poll.access === 'GROUP' && !member && poll.created_by !== user.id && user.role !== 'admin') {
+      throw notFound('Sondage introuvable');
+    }
     if (poll.status === 'CLOSED' || poll.expired) {
       throw new AppError(403, 'POLL_CLOSED', 'Ce sondage est clôturé, il n’est plus possible de voter');
     }
-    if (poll.created_by === user.id) {
+    if (poll.access === 'GROUP' && !member) {
+      throw new AppError(403, 'NOT_GROUP_MEMBER', 'Seuls les membres du groupe peuvent voter à ce sondage');
+    }
+    if (poll.created_by === user.id && poll.access !== 'GROUP') {
       throw new AppError(403, 'OWNER_CANNOT_VOTE', 'Vous ne pouvez pas voter à votre propre sondage');
     }
     if (poll.access === 'PRIVATE' && !invited) {

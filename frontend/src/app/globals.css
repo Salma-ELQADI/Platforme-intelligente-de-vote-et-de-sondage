@@ -2,66 +2,181 @@
 
 /* ------------------------------------------------------------------
    VoteLive — The Moroccan Editorial
-   Two inks only: warm paper and brown printing ink.
+   Two inks on paper. Every colour is a semantic token defined below for
+   both editions (daylight paper, evening edition); components only ever
+   use the Tailwind names (cream, paper, ink…), never raw values.
    ------------------------------------------------------------------ */
+
 @theme inline {
-  --font-serif: var(--font-playfair);
-  --font-sans: var(--font-dmsans);
-  --font-mono: var(--font-plexmono);
+  --font-serif: var(--font-display);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-plexmono), var(--font-plexarabic), ui-monospace, monospace;
   --font-arabic: var(--font-amiri);
 
-  --color-cream: #e9ddc8; /* page background */
-  --color-paper: #f5f0e6; /* paper surface */
-  --color-ink: #38291f;   /* primary text, solid fills */
-  --color-umber: #70513b; /* secondary text, hover ink */
-  --color-muted: #a9957e; /* ornaments only (not for text) */
-  --color-rule: #cbbba4;  /* borders, separators, tracks */
+  --color-cream: var(--background);         /* page background */
+  --color-paper: var(--surface);            /* paper surface: cards, inputs, dialogs */
+  --color-elevated: var(--surface-elevated);/* menus, popovers, received bubbles */
+  --color-ink: var(--foreground);           /* primary text, solid fills */
+  --color-umber: var(--muted);              /* secondary text, hover ink */
+  --color-muted: var(--ornament);           /* ornaments only (not for text) */
+  --color-rule: var(--border);              /* borders, separators, tracks */
+  --color-accent: var(--accent);            /* unread marks, presence, live dots */
+  --color-on-accent: var(--accent-foreground);
+  --color-bubble: var(--bubble-out);        /* sent messages */
+  --color-on-bubble: var(--bubble-out-foreground);
 }
 
+/* ---------- Daylight edition (default) ---------- */
 :root {
   color-scheme: light;
+  --background: #e9ddc8;
+  --surface: #f5f0e6;
+  --surface-elevated: #fbf8f2;
+  --foreground: #38291f;
+  --muted: #70513b;           /* 5.3:1 on background */
+  --ornament: #a9957e;
+  --border: #cbbba4;
+  --accent: #8a5a32;          /* walnut copper, 5.1:1 on surface */
+  --accent-foreground: #f5f0e6;
+  --bubble-out: #38291f;      /* sent messages are set in solid ink */
+  --bubble-out-foreground: #f5f0e6;
+  /* Printed-paper grain: brown speckles. */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .22 0 0 0 0 .16 0 0 0 0 .12 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* Printed-paper grain: a tiny SVG noise tile, no image request. */
+/* ---------- Evening edition ----------
+   Not an inversion: the page is roasted espresso, sheets of paper are
+   walnut, and copper takes over the accents that dark ink cannot carry.
+   Solid "ink" fills become cream, so primary buttons read as lit labels. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #211b17;
+  --surface: #302720;
+  --surface-elevated: #3b3027;
+  --foreground: #f5f0e6;      /* 15:1 on background */
+  --muted: #cbbba4;           /* 9:1 on background, 6.8:1 on elevated */
+  --ornament: #7a6655;
+  --border: #514338;
+  --accent: #c49a70;          /* 6.6:1 on background */
+  --accent-foreground: #211b17;
+  --bubble-out: #c49a70;      /* sent messages: copper sheet, espresso text */
+  --bubble-out-foreground: #211b17;
+  /* Cream fibres instead of brown speckles, much fainter. */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .96 0 0 0 0 .94 0 0 0 0 .9 0 0 0 .035 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+/* "System" = no data-theme attribute: the OS decides, with the same palette. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --background: #211b17;
+    --surface: #302720;
+    --surface-elevated: #3b3027;
+    --foreground: #f5f0e6;
+    --muted: #cbbba4;
+    --ornament: #7a6655;
+    --border: #514338;
+    --accent: #c49a70;
+    --accent-foreground: #211b17;
+    --bubble-out: #c49a70;
+    --bubble-out-foreground: #211b17;
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .96 0 0 0 0 .94 0 0 0 0 .9 0 0 0 .035 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
+
+/* ---------- Typography per script ----------
+   Latin faces come first: Arabic glyphs fall through to the Arabic faces,
+   so mixed content (a French poll in the Arabic edition, an Arabic message
+   in the French one) is always set in a proper face for each script. */
+:root {
+  --font-display: var(--font-playfair), var(--font-amiri), Georgia, serif;
+  --font-ui: var(--font-dmsans), var(--font-plexarabic), system-ui, sans-serif;
+}
+
 body,
 .paper-grain {
-  background-color: #e9ddc8;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .22 0 0 0 0 .16 0 0 0 0 .12 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  color: #38291f;
+  background-color: var(--background);
+  background-image: var(--grain);
+  color: var(--foreground);
 }
 
 ::selection {
-  background: #38291f;
-  color: #f5f0e6;
+  background: var(--foreground);
+  color: var(--surface);
 }
 
 :focus-visible {
-  outline: 2px solid #38291f;
+  outline: 2px solid var(--foreground);
   outline-offset: 2px;
 }
 
 /* Small uppercase labels used for kickers, categories and metadata */
 .kicker {
-  font-family: var(--font-dmsans);
+  font-family: var(--font-ui);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: .14em;
   text-transform: uppercase;
 }
 
+/* Small caps of buttons. */
+.caps {
+  text-transform: uppercase;
+  letter-spacing: .12em;
+}
+
 /* Drop cap for article introductions */
 .dropcap::first-letter {
-  float: left;
-  font-family: var(--font-playfair);
+  float: inline-start;
+  font-family: var(--font-display);
   font-size: 3.6em;
   line-height: .8;
-  padding: .06em .08em 0 0;
+  padding-block-start: .06em;
+  padding-inline-end: .08em;
   font-weight: 700;
 }
 
 /* Diagonal hatching, like engraved shading in print charts */
 .hatch {
-  background-image: repeating-linear-gradient(135deg, #38291f 0 1px, transparent 1px 5px);
+  background-image: repeating-linear-gradient(135deg, var(--foreground) 0 1px, transparent 1px 5px);
+}
+
+/* ---------- The Arabic edition ----------
+   Arabic letters join: letter-spacing would break the words apart, and
+   the script has no capitals. Labels are therefore set slightly larger,
+   in medium weight, without tracking. Arabic has no italic either: the
+   slanted Latin "standfirst" voice becomes upright Naskh. A drop cap
+   would detach the first letter from its word, so it is not used. */
+:root[lang="ar"] .kicker {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+:root[lang="ar"] .caps {
+  letter-spacing: 0;
+  text-transform: none;
+}
+:root[lang="ar"] .italic {
+  font-style: normal;
+}
+:root[lang="ar"] .dropcap::first-letter {
+  float: none;
+  font-size: inherit;
+  line-height: inherit;
+  padding: 0;
+  font-weight: inherit;
+}
+/* Naskh needs more room between lines than Latin. */
+:root[lang="ar"] body {
+  line-height: 1.7;
+}
+:root[lang="ar"] .font-serif {
+  line-height: 1.45;
+}
+
+/* User-written text keeps its own direction inside any interface language. */
+.bidi-auto {
+  unicode-bidi: plaintext;
 }
 
 /* ---------- Motion (disabled for reduced-motion users) ---------- */
@@ -84,12 +199,16 @@ body,
   50% { opacity: .25; }
 }
 @keyframes ink-flash {
-  from { background-color: #38291f14; }
+  from { background-color: color-mix(in srgb, var(--foreground) 8%, transparent); }
   to { background-color: transparent; }
 }
 @keyframes stamp {
   from { opacity: 0; transform: scale(1.25) rotate(-6deg); }
   to { opacity: 1; transform: scale(1) rotate(-6deg); }
+}
+@keyframes typing-dot {
+  0%, 60%, 100% { opacity: .25; transform: none; }
+  30% { opacity: 1; transform: translateY(-2px); }
 }
 
 .animate-page-in { animation: page-in .3s ease-out both; }
@@ -98,6 +217,9 @@ body,
 .animate-blink { animation: blink 1.6s ease-in-out infinite; }
 .animate-ink-flash { animation: ink-flash 1.4s ease-out; }
 .animate-stamp { animation: stamp .35s cubic-bezier(.2,.9,.3,1.2) both; }
+.typing-dot { animation: typing-dot 1.2s ease-in-out infinite; }
+.typing-dot:nth-child(2) { animation-delay: .15s; }
+.typing-dot:nth-child(3) { animation-delay: .3s; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

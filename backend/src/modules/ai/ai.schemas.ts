@@ -9,7 +9,7 @@ export const generatePollSchema = z.object({
     .max(200, 'Le thème ne peut pas dépasser 200 caractères'),
   optionCount: z.coerce.number().int().min(2, 'Au moins 2 propositions').max(8, 'Au plus 8 propositions').default(4),
   instructions: z.string().trim().max(500, 'Les instructions ne peuvent pas dépasser 500 caractères').optional(),
-  language: z.enum(['fr', 'en']).default('fr'),
+  language: z.enum(['fr', 'en', 'ar']).default('fr'),
   /** Sent on "Regenerate" so the model proposes something different. */
   previousQuestion: z.string().trim().max(300).optional(),
 });

@@ -1,7 +1,7 @@
 export type PollStatus = 'DRAFT' | 'ACTIVE' | 'CLOSED';
 export type CreationMode = 'MANUAL' | 'AI';
 export type ResultsVisibility = 'LIVE' | 'AFTER_CLOSE';
-export type PollAccess = 'PUBLIC' | 'PRIVATE';
+export type PollAccess = 'PUBLIC' | 'PRIVATE' | 'GROUP';
 
 export interface PollOption {
   id: string;
@@ -34,6 +34,8 @@ export interface Poll {
   canVote: boolean;
   /** Invited voters of a PRIVATE poll: only returned to its creator and to admins, otherwise null. */
   voters: PollVoter[] | null;
+  /** GROUP polls: the group conversation they belong to (only its members can see the poll). */
+  group: { id: string; name: string } | null;
 }
 
 export interface PollVoter {
@@ -50,6 +52,7 @@ export interface PollRow {
   status: PollStatus;
   results_visibility: ResultsVisibility;
   access: PollAccess;
+  group_id: string | null;
   end_time: Date;
   published_at: Date | null;
   closed_at: Date | null;

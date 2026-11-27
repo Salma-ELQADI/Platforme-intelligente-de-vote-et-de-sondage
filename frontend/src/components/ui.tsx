@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { useI18n } from "@/contexts/PreferencesContext";
 import { cn } from "@/lib/format";
 import type { PollStatus } from "@/types";
 import { DoubleRule, Fleuron, PressLoader } from "./decor";
@@ -27,7 +28,7 @@ const sizes: Record<Size, string> = {
 };
 
 const buttonBase =
-  "inline-flex items-center justify-center gap-2 font-sans font-semibold uppercase tracking-[.12em] transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-45 whitespace-nowrap";
+  "caps inline-flex items-center justify-center gap-2 font-sans font-semibold transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-45 whitespace-nowrap";
 
 export function Button({
   variant = "primary",
@@ -129,35 +130,35 @@ export function Spinner({ className }: { className?: string }) {
 }
 
 export function PageLoader({ label }: { label?: string }) {
+  const { t } = useI18n();
   return (
     <div className="flex justify-center py-28">
-      <PressLoader label={label} />
+      <PressLoader label={label ?? t("common.loading")} />
     </div>
   );
 }
 
-const alertLabel = { error: "Erratum", info: "Note", success: "Confirmé", warning: "Avis" } as const;
-
 export function Alert({ kind = "error", children }: { kind?: "error" | "info" | "success" | "warning"; children: ReactNode }) {
+  const { t } = useI18n();
   return (
-    <div role="alert" className={cn("border-l-[3px] bg-paper px-4 py-3 text-sm leading-relaxed text-ink", kind === "error" ? "border-ink" : "border-umber")}>
-      <span className="kicker mr-2 text-umber">{alertLabel[kind]}</span>
+    <div role="alert" className={cn("border-s-[3px] bg-paper px-4 py-3 text-sm leading-relaxed text-ink", kind === "error" ? "border-ink" : "border-umber")}>
+      <span className="kicker me-2 text-umber">{t(`alert.${kind}`)}</span>
       {children}
     </div>
   );
 }
 
-const statusStyle: Record<PollStatus, { label: string; className: string }> = {
-  DRAFT: { label: "Brouillon", className: "border border-dashed border-umber/60 text-umber" },
-  ACTIVE: { label: "Scrutin ouvert", className: "bg-ink text-paper" },
-  CLOSED: { label: "Scrutin clos", className: "border border-ink text-ink" },
+const statusStyle: Record<PollStatus, string> = {
+  DRAFT: "border border-dashed border-umber/60 text-umber",
+  ACTIVE: "bg-ink text-paper",
+  CLOSED: "border border-ink text-ink",
 };
 
 export function StatusBadge({ status, isOpen }: { status: PollStatus; isOpen?: boolean }) {
+  const { t } = useI18n();
   // An ACTIVE poll whose end time just passed (closer job not run yet) is displayed as closed.
   const effective = status === "ACTIVE" && isOpen === false ? "CLOSED" : status;
-  const s = statusStyle[effective];
-  return <span className={cn("kicker inline-flex h-6 items-center px-2", s.className)}>{s.label}</span>;
+  return <span className={cn("kicker inline-flex h-6 items-center px-2", statusStyle[effective])}>{t(`status.${effective}`)}</span>;
 }
 
 /** Category / metadata label. */
@@ -166,10 +167,11 @@ export function Badge({ children, className }: { children: ReactNode; className?
 }
 
 export function LiveIndicator({ connected }: { connected: boolean }) {
+  const { t } = useI18n();
   return (
     <span className={cn("kicker inline-flex items-center gap-2", connected ? "text-ink" : "text-umber")}>
-      <span className={cn("h-1.5 w-1.5 rounded-full", connected ? "animate-blink bg-ink" : "bg-muted")} />
-      {connected ? "En direct" : "Hors ligne"}
+      <span className={cn("h-1.5 w-1.5 rounded-full", connected ? "animate-blink bg-accent" : "bg-muted")} />
+      {connected ? t("common.live") : t("common.offline")}
     </span>
   );
 }

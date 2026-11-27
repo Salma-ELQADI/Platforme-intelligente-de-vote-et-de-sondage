@@ -37,7 +37,12 @@ This README is the **technical reference** of the project. It is meant for devel
 18. [Technical decisions and trade-offs](#18-technical-decisions-and-trade-offs)
 19. [Known limitations](#19-known-limitations)
 20. [Future improvements](#20-future-improvements)
-21. [Technical Defense Guide – Abdelilah](#technical-defense-guide--abdelilah)
+21. [Messaging: private conversations, groups and group polls](#21-messaging-private-conversations-groups-and-group-polls)
+22. [Theme system (day and evening editions)](#22-theme-system-day-and-evening-editions)
+23. [Internationalization (French, English, Arabic)](#23-internationalization-french-english-arabic)
+24. [RTL implementation (Arabic edition)](#24-rtl-implementation-arabic-edition)
+25. [Testing the new features](#25-testing-the-new-features)
+26. [Technical Defense Guide – Abdelilah](#technical-defense-guide--abdelilah)
 
 ---
 
@@ -55,6 +60,9 @@ VoteLive is a web platform where authenticated users can:
 | **Automatic closure** | A background job closes expired polls, writes persistent notifications and emits `poll:closed`. Every vote also checks the end time on its own, so closure never depends on the job or on sockets. |
 | **Notifications** | Creators and voters are notified when a poll closes: live via Socket.IO, and stored in the database so users who were offline see them later. |
 | **Administration** | Admins can list users, change roles, deactivate accounts, close any poll and delete any poll. |
+| **Messaging** | Private conversations and groups in real time: typing indicators, presence, unread counts, read receipts, history with pagination, reliable sending with retry. Group admins manage names and members (§21). |
+| **Group polls** | A group (friends, a work team) can decide together: "Where do we go this weekend?", "Should the cafeteria be larger?". Only current members see and vote, the author included, and the poll is announced in the chat (§21). |
+| **Themes and languages** | Day and evening editions plus system mode, without a flash on load (§22). French, English and Arabic, with a genuinely right-to-left Arabic edition (§23, §24). Preferences follow the account. |
 
 > **Specification note:** the original specification PDF mentions MySQL. The project team chose **PostgreSQL** instead. Every requirement (relational model, unique constraint, transactions) applies the same way. PostgreSQL also provides `UUID` generation, partial indexes, `RETURNING` and `FOR SHARE` row locks, which this implementation uses (see [§18](#18-technical-decisions-and-trade-offs)).
 
@@ -193,9 +201,9 @@ Redis, Kafka, microservices, Kubernetes, an ORM and a state-management library (
 │   │   ├── db/
 │   │   │   ├── pool.ts           # pg Pool, query(), withTransaction()
 │   │   │   ├── migrate.ts        # migration runner (advisory lock, one transaction per file)
-│   │   │   ├── migrations/001_initial_schema.sql
+│   │   │   ├── migrations/       # 001 initial schema · 002 private polls · 003 messaging + preferences · 004 group polls
 │   │   │   ├── init/01-create-test-db.sql   # run by the Docker image on first start
-│   │   │   └── seed.ts           # demo accounts + demo polls
+│   │   │   └── seed.ts           # demo accounts, polls, groups with group polls, a private conversation
 │   │   ├── middleware/
 │   │   │   ├── auth.ts           # authenticate (who?) + requireRole (allowed?)
 │   │   │   ├── validate.ts       # zod validation of params/query/body
@@ -207,17 +215,21 @@ Redis, Kafka, microservices, Kubernetes, an ORM and a state-management library (
 │   │   │   ├── polls/            # CRUD, lifecycle, results, closure logic
 │   │   │   ├── votes/            # castVote (transaction), history
 │   │   │   ├── ai/               # prompt, OpenRouter client, output validation
+│   │   │   ├── messaging/        # conversations, members, messages: authorization, idempotent sends, read state
 │   │   │   └── notifications/    # persisted notifications
 │   │   ├── socket/
 │   │   │   ├── index.ts          # Socket.IO server: handshake auth, poll:join / poll:leave
-│   │   │   └── realtime.ts       # broadcastResults / broadcastPollClosed / sendNotification
+│   │   │   ├── messaging.ts      # message:send, conversation:read, typing (+ presence announcements)
+│   │   │   ├── presence.ts       # in-memory count of open sockets per user
+│   │   │   └── realtime.ts       # broadcastResults / broadcastPollClosed / sendNotification / sendToUsers
 │   │   ├── jobs/pollCloser.ts    # periodic closure of expired polls
 │   │   ├── docs/openapi.ts       # OpenAPI 3.1 document served by Swagger UI
 │   │   ├── types/express.d.ts    # adds req.user to Express' Request type
-│   │   └── utils/errors.ts       # AppError + PostgreSQL error codes
-│   └── tests/                    # 63 integration/unit tests (see §16)
+│   │   └── utils/                # errors.ts (AppError + PostgreSQL codes), rateLimiter.ts (per-user sliding window)
+│   └── tests/                    # 99 integration/unit tests (see §16, §25)
 └── frontend/
     ├── .env.local.example        # NEXT_PUBLIC_API_URL / NEXT_PUBLIC_SOCKET_URL
+    ├── scripts/check-i18n.mjs    # verifies dictionary keys, parity and placeholders
     └── src/
         ├── app/                  # App Router pages (one folder = one URL)
         │   ├── layout.tsx, providers.tsx, page.tsx (landing), not-found.tsx
@@ -226,12 +238,17 @@ Redis, Kafka, microservices, Kubernetes, an ORM and a state-management library (
         │   ├── polls/new/page.tsx        # manual + AI creation
         │   ├── polls/[id]/PollDetail.tsx # vote + live results
         │   ├── polls/[id]/edit/          # edit a draft
+        │   ├── messages/                 # layout (two panels), page (empty state), [id]/ (conversation)
+        │   ├── settings/                 # language, theme, notification preferences
         │   └── admin/users/              # admin console
         ├── components/           # ui.tsx (design system), decor.tsx (print ornaments), Navbar (masthead), Footer, PollCard (editorial entries),
-        │                         # Ballot (printed ballot), ResultsBars (editorial chart), PollForm, AiGeneratorPanel (writing desk), AuthShell, Countdown
-        ├── contexts/             # AuthContext, SocketContext, ToastContext
-        ├── hooks/                # usePollRoom (room subscription), useRequireAuth (route guard)
-        ├── lib/                  # api.ts (typed REST client), socket.ts, format.ts
+        │                         # Ballot (printed ballot), ResultsBars (editorial chart), PollForm, AiGeneratorPanel (writing desk), AuthShell, Countdown,
+        │                         # PreferenceSwitchers, messaging/ (ConversationList, Thread, MessageItem, Composer, ConversationInfo, PeoplePicker, dialogs)
+        ├── contexts/             # AuthContext, SocketContext, ToastContext, PreferencesContext (language, theme), MessagingContext
+        ├── hooks/                # usePollRoom, useRequireAuth, useConversationThread (history, optimistic send, read, typing)
+        ├── i18n/                 # config.ts (locales, cookies, Accept-Language), translate.ts (plurals, isolates)
+        ├── locales/              # fr.json, en.json, ar.json
+        ├── lib/                  # api.ts (typed REST client), socket.ts, format.ts (Intl formatters per locale)
         └── types/index.ts        # API types
 ```
 
@@ -252,6 +269,8 @@ This layering keeps controllers thin and makes the business rules testable and e
 ## 5. Database architecture
 
 The complete schema is in [backend/src/db/migrations/001_initial_schema.sql](backend/src/db/migrations/001_initial_schema.sql).
+
+> Migrations `003_messaging.sql` and `004_group_polls.sql` add `conversations`, `conversation_members`, `messages`, group polls and user preferences: see [§21.2](#212-database-schema-migrations-003_messagingsql-004_group_pollssql).
 
 ### 5.1 Entity-relationship diagram
 
@@ -795,6 +814,8 @@ RETURNING *;
 
 ## 12. Complete REST API reference
 
+> Messaging, preferences and group polls: see [§21.5](#215-rest-api--apiconversations-all-require-auth).
+
 **Base URL:** `http://localhost:5000/api` · **Interactive docs:** `GET /api/docs` (Swagger UI) · **Content type:** `application/json`
 
 **Authentication:** the `votelive_token` httpOnly cookie (set by register/login; browsers send it automatically with `credentials: "include"`) **or** `Authorization: Bearer <token>`. All endpoints except `register`, `login`, `logout` and `health` require it.
@@ -1041,6 +1062,8 @@ Marks one notification as read (only the owner's notifications: the SQL filters 
 
 ## 13. Socket.IO API reference
 
+> Messaging events (`message:send`, `message:new`, `typing`, `conversation:read`, `unread:update`, `presence:update`…) are documented in [§21.6](#216-socketio-events).
+
 **URL:** `http://localhost:5000` (same port as the REST API) · **Client:** `io(SOCKET_URL, { withCredentials: true })`
 
 **Authentication (required):** the `votelive_token` cookie sent with the handshake (browser), or `io(url, { auth: { token } })` (Node clients, tests). On failure the client receives `connect_error` with `message === "UNAUTHORIZED"` and no connection is established.
@@ -1208,7 +1231,9 @@ flowchart LR
 * [tests/helpers.ts](backend/tests/helpers.ts): `resetDb()` (TRUNCATE before each test), `createUser()` (registers through the API), `createPoll()`, `expirePoll()` (moves `end_time` into the past to simulate time).
 * The developer's `backend/.env` is **not loaded** in tests.
 
-### 16.3 Scenarios covered (63 tests, all passing)
+### 16.3 Scenarios covered (99 tests in 8 files, all passing)
+
+Messaging and group polls (`messaging.test.ts`, 23 tests; `groupPolls.test.ts`, 5 tests) are detailed in [§25](#25-testing-the-new-features). `privatePolls.test.ts` (8 tests) covers private polls and the "owner cannot vote" rule.
 
 | File | Tests | Scenarios |
 |---|---|---|
@@ -1223,7 +1248,7 @@ flowchart LR
 ```bash
 docker compose up -d postgres # PostgreSQL (creates votelive_test on first start)
 cd backend
-npm test                      # vitest run → 5 files, 63 tests
+npm test                      # vitest run → 8 files, 99 tests
 npm run test:watch            # watch mode
 npm run typecheck             # tsc --noEmit
 ```
@@ -1402,6 +1427,8 @@ npm run dev                # http://localhost:3000
 * **Account features:** no email verification, no password reset by email, no 2FA, no account deletion endpoint.
 * **Polls:** single-choice only (no multiple choice or ranking). Published polls cannot be edited. Results are computed on each request without caching.
 * **Time zones:** the UI uses the browser's local time for input and display. The server stores everything in UTC (`TIMESTAMPTZ`).
+* **Messaging:** presence, typing and the message rate limiter live in process memory (single instance, like the rest of the real-time layer). There is no separate "delivered" state (only sent / read), no editing or deleting of messages, no attachments, and no end-to-end encryption: the server can read messages, like any classic web chat. Removed group members lose the whole history, not only later messages (deliberate, see §21.2). Message search covers conversation names and participants, not message contents.
+* **Translations of server messages:** the backend writes its messages in French. English and Arabic readers see messages translated by error code, which are slightly less specific for a few validation cases.
 
 ---
 
@@ -1416,6 +1443,224 @@ Realistic next steps, **not implemented**:
 5. Charts (pie and timeline of votes) in addition to progress bars.
 6. AI: a moderation step on the topic and output, model fallback (`models: [...]` in OpenRouter), suggestions of options for a question the user wrote, cost tracking per user.
 7. Observability: request IDs, Prometheus metrics (vote rate, AI latency and errors), health checks for OpenRouter.
+
+---
+
+## 21. Messaging: private conversations, groups and group polls
+
+Readers can write to each other privately, gather in **groups** (friends, a work team…) and let a group **decide together with a poll**: "Where do we go this weekend?", "Should the cafeteria be larger?". Group polls reuse the whole voting engine of §9; only who may see and vote changes.
+
+### 21.1 Architecture
+
+```
+ Browser (Next.js)                           API (Express + Socket.IO)                    PostgreSQL
+ ─────────────────                           ──────────────────────────                   ──────────
+ MessagingContext ── REST: list, history ──► conversationsRouter ──► messaging.service ──► conversations
+   (list, unread,     catch-up ?after=          (authenticate,          (membership checks,    conversation_members
+    typing, presence)                            zod validation)         transactions)          messages
+ useConversationThread ── socket: message:send ─► socket/messaging.ts ──┘        │
+   (optimistic send,  ◄─ message:new, unread:update, typing, ... ── realtime.sendToUsers(user rooms)
+    retry, read)
+```
+
+* **PostgreSQL is the source of truth, Socket.IO only delivers.** A message is acknowledged only after its transaction has committed, then pushed. History, the conversation list and catch-up after a reconnection always come from REST.
+* **One real-time architecture.** Messaging reuses the existing Socket.IO server, its cookie authentication and the personal rooms `user:<id>` (§10). No conversation rooms: at each event the recipients are read from `conversation_members`, and the event is emitted to their personal rooms. A removed member therefore stops receiving a group's events at once, even on a socket opened before the removal, and there is nothing to join or leave on reconnection.
+* **Two entry points, one service.** `POST /conversations/:id/messages` and the `message:send` socket event call the same `sendMessage` service: same checks, same rate limit, same idempotency.
+
+### 21.2 Database schema (migrations `003_messaging.sql`, `004_group_polls.sql`)
+
+```
+users 1───* conversation_members *───1 conversations 1───* messages *───0..1 polls
+            (role, last_read_seq)       (DIRECT|GROUP,        (seq, kind,         (access = GROUP,
+                                         direct_key, name)     client_id)          group_id → conversations)
+```
+
+| Table / column | Purpose and constraints |
+|---|---|
+| `conversations` | `type` `DIRECT` or `GROUP`. `name` required for groups and forbidden for direct conversations (CHECK). `direct_key` = `"<smaller user id>:<larger user id>"`, **UNIQUE**, present only for `DIRECT` (CHECK): two private conversations between the same pair are impossible, even when both people click "write" simultaneously (`INSERT … ON CONFLICT (direct_key) DO NOTHING`). `last_message_at` orders the list. |
+| `conversation_members` | PK `(conversation_id, user_id)`. `role` `ADMIN`/`MEMBER` (CHECK). `last_read_seq` = seq of the last message read: it gives unread counts and read receipts without a per-message receipt table. Removing a member **deletes the row**: access to the conversation, its history and its group polls is lost immediately. |
+| `messages` | `seq BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE`: a strictly increasing ordering key (timestamps can tie, seq cannot), used for display order, keyset pagination, catch-up and read positions. `body VARCHAR(2000)` non-blank (CHECK). `client_id` + **UNIQUE `(sender_id, client_id)`**: a retried send returns the original message instead of a duplicate. `sender_id ON DELETE SET NULL` keeps conversations readable if an account is deleted. `kind` `TEXT`/`POLL` with `poll_id` (CHECK `kind = 'POLL'` ⇔ `poll_id` set, UNIQUE `poll_id`: one announcement per poll). |
+| `polls.access = 'GROUP'`, `polls.group_id` | CHECK `access = 'GROUP'` ⇔ `group_id` set. `ON DELETE CASCADE`: when the last member leaves, the group and its polls disappear. |
+| `users.preferred_locale`, `preferred_theme`, `message_notifications` | Interface preferences (CHECK on allowed values), returned with the session. |
+
+Indexes: `messages (conversation_id, seq DESC)` serves history pages and unread counts, `conversation_members (user_id)` the "my conversations" lookups, and a partial index `polls (group_id, created_at DESC) WHERE group_id IS NOT NULL` serves a group's polls.
+
+Why not the alternatives:
+
+* *A `message_reads` table (one row per message and reader)* would grow with messages × members. A read position per member gives the same unread counts and receipts with one row per membership.
+* *Soft-removing members (`left_at`)* would let removed members keep reading the history up to their removal. The stricter rule (deleting the row) was chosen; it is one line to change if the history should stay visible.
+* *Reusing `poll_voters` for group polls* would copy the group's member list into each poll, and it would go stale when members join or leave. `group_id` makes visibility follow the group's **current** membership.
+
+### 21.3 Authorization rules (enforced in `messaging.service.ts` and `polls.service.ts`)
+
+| Action | Who | Otherwise |
+|---|---|---|
+| See a conversation, its members, its history; mark it read; send typing | its members (active accounts) | **404**: the conversation is not revealed |
+| Send a message | members; the sender is always the session user (a `senderId` in the payload is ignored) | 404 |
+| Open a direct conversation | any user, with another active user | 400 (yourself), 404 (unknown user) |
+| Create a group | any user; the creator becomes `ADMIN` | 400 (no member, unknown users, > 50 members) |
+| Rename, add members, change roles, remove a member | group `ADMIN`s | **403** for members, 404 for outsiders |
+| Demote the last admin | nobody | **409 `LAST_ADMIN`** |
+| Leave a group | any member. If the last admin leaves, the longest-standing member is promoted; when the last member leaves, the group is deleted | — |
+| See / vote in a group poll | current members of the group, **the author included** (a group decision) | 404 / 403 `NOT_GROUP_MEMBER` |
+| Address a poll to a group | members of that group | 400 `NOT_GROUP_MEMBER` |
+
+The platform `admin` role grants **no access to private conversations**. Admins keep their existing moderation rights over polls (§6.3), so they can see and delete a group poll, but they cannot read the group's chat.
+
+Concurrency: sending locks the sender's membership row (`FOR NO KEY UPDATE`) until commit, so a removal running at the same time waits, and a just-removed member can never slip a message in. Membership changes of one group lock the conversation row (`FOR UPDATE`), so two admins cannot race the "last admin" rule.
+
+### 21.4 Message lifecycle, reliability and duplicates
+
+1. The client shows an **optimistic copy** immediately, marked "sending", keyed by a `clientId` generated in the browser (`crypto.randomUUID`).
+2. It emits `message:send` with an acknowledgement and an 8 s timeout (or calls REST if the socket is down).
+3. The server validates (zod: length ≤ 2000, control characters stripped, trimmed), checks membership, applies the rate limit (20 messages / 10 s / user), inserts, updates `last_message_at` and the sender's read position, and commits.
+4. After the commit: `message:new` goes to every member's personal room (all the sender's tabs included), then `unread:update` goes to each recipient.
+5. The ack replaces the optimistic copy with the stored message. On timeout or refusal the copy is marked **"Not sent"** with *Retry* and *Delete*. Retry reuses the **same `clientId`**: if the first attempt had in fact succeeded, the server returns the existing message (`200`) and delivers nothing twice.
+6. The client merges messages **by id**, so an event received twice (ack + broadcast, reconnection) is shown once.
+7. **Reconnection:** Socket.IO does not replay missed events. On every `connect` the client re-fetches the conversation list and unread total, and the open thread asks `GET /messages?after=<last seq>` for what it missed.
+
+**Delivery and read states.** "Sent" = stored and acknowledged. "Read" (direct) / "Read by N" / "Read by everyone" (groups) is computed from the members' `last_read_seq` and updated live by `conversation:read`. A separate "delivered" state is **not** implemented: it would need per-recipient acknowledgements, and once a message is stored it reaches every recipient's open tabs immediately anyway.
+
+**Presence and typing** are not stored. Presence is a per-process count of open sockets per user; `presence:update` is sent to users who share a conversation, when the first tab opens and when the last one closes. Typing indicators are throttled by the client (one event per 2.5 s, auto-stop after 3.5 s idle), relayed to the other members after a membership check, and expire after 6 s on the receiving side if the "stop" event is lost.
+
+### 21.5 REST API — `/api/conversations` (all require auth)
+
+| Method & path | Body / query | Success | Errors |
+|---|---|---|---|
+| `GET /conversations` | `?search=` (group name or participant) | `200 { conversations: Conversation[] }` | 401 |
+| `GET /conversations/unread-count` | — | `200 { total }` | 401 |
+| `POST /conversations/direct` | `{ userId }` | `201` new / `200` existing `{ conversation }` | 400 (yourself), 404 |
+| `POST /conversations/groups` | `{ name (1–80), memberIds: uuid[] (1–49) }` | `201 { conversation }` | 400 |
+| `GET /conversations/:id` | — | `200 { conversation }` | 404 |
+| `PATCH /conversations/:id` | `{ name }` | `200 { conversation }` | 400, 403, 404 |
+| `POST /conversations/:id/members` | `{ userIds }` | `200 { conversation }` | 400, 403, 404 |
+| `PATCH /conversations/:id/members/:userId` | `{ role: "ADMIN" \| "MEMBER" }` | `200 { conversation }` | 403, 404, 409 `LAST_ADMIN` |
+| `DELETE /conversations/:id/members/:userId` | — (yourself = leave) | `200 { left }` | 400, 403, 404 |
+| `GET /conversations/:id/messages` | `?before=<seq>` older page · `?after=<seq>` catch-up · `?limit=30` (≤ 100) | `200 { messages (oldest first), hasMore }` | 400, 404 |
+| `POST /conversations/:id/messages` | `{ body (1–2000), clientId: uuid }` | `201` new / `200` retry `{ message }` | 400, 404, 409 `CLIENT_ID_REUSED`, 429 `RATE_LIMITED` |
+| `POST /conversations/:id/read` | `{ seq? }` (default: newest) | `200 { lastReadSeq }` | 404 |
+| `GET /conversations/:id/polls` | — | `200 { polls: Poll[] }` (published + your drafts) | 404 |
+
+Related endpoints: `PATCH /api/users/me/preferences` `{ locale?: "fr"|"en"|"ar"|null, theme?: "system"|"light"|"dark", messageNotifications?: boolean }` → `{ user }`, and `GET /api/users/directory?search=` → `{ users: [{ id, username }] }` (active users, never the email). `POST /api/polls` accepts `access: "GROUP"` with `groupId`. `GET /api/notifications` items now include `pollQuestion`.
+
+`Conversation` = `{ id, type, name, createdBy, myRole, myLastReadSeq, members: [{ id, username, role, lastReadSeq, joinedAt, online }], lastMessage, unreadCount, lastMessageAt, createdAt, updatedAt }`.
+`Message` = `{ id, kind: "TEXT"|"POLL", poll: { id, question, status, endTime, optionCount } | null, seq, conversationId, sender: { id, username } | null, body, clientId, createdAt }`.
+
+All endpoints are also described in Swagger (`/api/docs`, tag *Messaging*).
+
+### 21.6 Socket.IO events
+
+Same connection and authentication as §13.
+
+| Event | Direction | Payload | Recipients / ack |
+|---|---|---|---|
+| `message:send` | client → server | `{ conversationId, body, clientId }` | ack `{ ok, data: { message } }` or `{ ok: false, error: { code, message } }` |
+| `conversation:read` | client → server | `{ conversationId, seq? }` | ack `{ ok, data: { lastReadSeq } }` |
+| `typing` | client → server | `{ conversationId, isTyping }` | ack `{ ok }` |
+| `message:new` | server → users | `{ message }` | every member (all tabs) |
+| `unread:update` | server → user | `{ total, conversationId?, unreadCount? }` | the user whose counters changed |
+| `conversation:updated` | server → users | `{ conversationId }` → client re-fetches `GET /conversations/:id` | every member (created, renamed, members or roles changed) |
+| `conversation:removed` | server → user | `{ conversationId }` | the removed or leaving member |
+| `conversation:read` | server → users | `{ conversationId, userId, lastReadSeq }` | every member (read receipts, other tabs of the reader) |
+| `typing` | server → users | `{ conversationId, user: { id, username }, isTyping }` | the other members |
+| `presence:update` | server → users | `{ userId, online }` | users sharing a conversation |
+
+Every client → server payload is validated with zod; errors come back in the ack (`VALIDATION_ERROR`, `NOT_FOUND`, `FORBIDDEN`, `RATE_LIMITED`, `INTERNAL_ERROR`) and never contain internal details.
+
+### 21.7 Interface
+
+* **Desktop:** two panels in one editorial frame. Left: title, "New message" / "New group", instant search (group name or participant), and the conversations with avatar (initial in a ring; khatam ornament for groups), presence dot, last message preview ("You: …", "alice: …", "Poll: …", or "… is typing"), time ("14:05", "Yesterday", weekday, date) and unread count. Right: header (name, online status or "N members · M online", *Start a poll* for groups, details toggle), history with day separators and "Older messages", composer.
+* **Mobile:** `/messages` shows the list, `/messages/<id>` shows the conversation with a back link (mirrored in Arabic).
+* **Bubbles:** sent messages are set in solid ink at the end of the line (copper in the evening edition), received ones on an elevated sheet at the start. The sender's name heads each run of group messages. The read state is shown under your latest message. Failed sends get *Retry* / *Delete*.
+* **Composer:** Enter sends, Shift + Enter adds a new line, IME composition (Arabic keyboards) is never interrupted, the direction follows what is typed, and a character counter appears near the 2000 limit.
+* **Details panel:** members with role and presence. Admins can rename, add members, promote or demote, and remove. There is a *Leave the group* button, plus the group's polls with *Start a poll* (opens the poll form with the group pre-selected).
+* **Group polls in the chat:** publishing posts a boxed poll notice (question, status, answer count, closing time, *Vote* / *See the results*).
+* A toast announces messages that arrive outside the open conversation (can be turned off in Settings). The navbar shows the total unread count.
+* **Demo data:** `npm run seed` creates a friends' group (*Les amis du week-end*, poll *Où allons-nous ce week-end ?*), a work team (*Équipe produit*, poll *La cafétéria doit-elle être agrandie ?*) and a private conversation between alice and bob.
+
+---
+
+## 22. Theme system (day and evening editions)
+
+**Tokens.** All colours are CSS custom properties defined once in [globals.css](frontend/src/app/globals.css) and exposed to Tailwind under the existing names, so components never contain a colour value:
+
+| Token (CSS) | Tailwind | Day edition | Evening edition |
+|---|---|---|---|
+| `--background` | `cream` | `#E9DDC8` | `#211B17` |
+| `--surface` | `paper` | `#F5F0E6` | `#302720` |
+| `--surface-elevated` | `elevated` | `#FBF8F2` | `#3B3027` |
+| `--foreground` | `ink` | `#38291F` | `#F5F0E6` |
+| `--muted` | `umber` | `#70513B` | `#CBBBA4` |
+| `--border` | `rule` | `#CBBBA4` | `#514338` |
+| `--ornament` | `muted` | `#A9957E` | `#7A6655` |
+| `--accent` | `accent` | `#8A5A32` | `#C49A70` |
+| `--bubble-out` | `bubble` | `#38291F` | `#C49A70` |
+
+The evening edition is designed, not inverted. The page is espresso and sheets are walnut. Solid "ink" fills become cream, so primary buttons read as lit labels. Copper carries the accents (unread marks, presence, live dots, your messages) that dark ink cannot. The paper grain switches from brown speckles to faint cream fibres. Text contrast (WCAG): foreground on background 10.4:1 (day) and 15:1 (evening); secondary text at least 5.3:1 (day) and 6.8:1 (evening, on elevated surfaces); copper accent 6.6:1 on the evening background.
+
+**Selection and persistence.** The choices are *System*, *Day* and *Evening*, in Settings and through the toggle in the dateline strip. The choice is stored in the `votelive-theme` cookie (visitors and members) and on the account (`preferred_theme`), which wins at the next login on any device.
+
+**No flash.** The root layout is rendered on the server and reads the cookie, so the very first HTML already carries `data-theme="dark"` or `"light"`. "System" sets no attribute: a `prefers-color-scheme` media query applies the evening palette to `:root:not([data-theme])`. Nothing waits for JavaScript. `color-scheme` is set per theme, so native controls (scrollbars, date pickers, checkboxes) follow.
+
+---
+
+## 23. Internationalization (French, English, Arabic)
+
+**Languages.** French (`fr`, the default and the original language of the platform), English (`en`) and Arabic (`ar`). The language is chosen in the dateline strip (FR · EN · ع) or in Settings.
+
+**Dictionaries.** [src/locales/fr.json](frontend/src/locales/fr.json), [en.json](frontend/src/locales/en.json) and [ar.json](frontend/src/locales/ar.json) contain every visible string (520 keys each): navigation, buttons, forms, validation and error messages, notifications, empty states, messaging, group management, settings, poll creation and voting. A small engine ([src/i18n/translate.ts](frontend/src/i18n/translate.ts), no dependency) provides:
+
+* `t("messages.unread", { count })`, with **plural forms chosen by `Intl.PluralRules`**. Arabic uses all six CLDR categories ("لا أصوات", "صوت واحد", "صوتان", "3 أصوات", "11 صوتًا", "100 صوت"), French treats 0 as singular, and English uses one/other.
+* `rich("common.by", { author: <bdi>…</bdi> })` for placeholders that are React elements.
+* Interpolated text wrapped in Unicode **isolates** (FSI … PDI). A French question inside an Arabic sentence, or an Arabic name inside an English one, keeps its own direction without moving the punctuation around it.
+* Fallback to French, then to the key.
+
+`node scripts/check-i18n.mjs` (run from `frontend/`) verifies that every key used in the code exists, that the three dictionaries have the same keys, and that placeholders match.
+
+**Errors from the API.** Backend messages are written in French. The client translates by **error code** (`errors.ALREADY_VOTED`, `errors.LAST_ADMIN`…) and translates field-level validation per field (`fieldErrors.question`…). French readers see the backend's exact wording.
+
+**Formatting.** Dates, times, weekdays and numbers go through `Intl` with `fr-FR`, `en-GB` and `ar-MA-u-nu-latn`. The Arabic edition follows Moroccan conventions with Western digits, as in the Moroccan press, so timestamps, percentages and counters stay readable next to Latin text.
+
+**User content is never translated.** Polls and messages stay in the language their authors wrote them in. The AI writing desk can now also write the proposal in Arabic (`language: "ar"`).
+
+**Persistence and first paint.** The language is stored in the `votelive-locale` cookie and on the account (`preferred_locale`). The server picks cookie → `Accept-Language` → French, and renders `<html lang dir>` and all texts in that language, so there is no flash and no hydration mismatch. After login the account's preference is applied. If the account has none yet, the visitor's current choice is kept.
+
+---
+
+## 24. RTL implementation (Arabic edition)
+
+* **Document direction:** `<html lang="ar" dir="rtl">`, rendered by the server and updated on switch.
+* **Logical CSS everywhere:** `ms-*` / `me-*`, `ps-*` / `pe-*`, `start-*` / `end-*`, `border-s` / `border-e`, `text-start` / `text-end`, `float: inline-start`. No physical `left` / `right` classes remain in components. Columns, sidebars, rule separators, the stacked results bar, progress bars, the ballot stamp, toasts (bottom-left in Arabic), dialogs and dropdown menus all mirror naturally. Hard offset shadows are mirrored with `rtl:` variants.
+* **Directional icons:** the back and send arrows flip (`rtl:-scale-x-100`). Non-directional icons do not.
+* **Typography per script:** Latin faces come first in every font stack (`Playfair Display, Amiri`, `DM Sans, IBM Plex Sans Arabic`). Arabic glyphs fall through to **Amiri** (a classic Naskh, the type of the Moroccan Arabic-language press) for headlines and **IBM Plex Sans Arabic** for the interface. Mixed content is therefore always set in the right face for each script, in every language.
+* **Arabic typographic rules:** letter-spacing and upper-casing of labels are turned off (they break letter joining; Arabic has no capitals), labels are slightly larger, there is no synthetic italic (the slanted "standfirst" voice becomes upright Naskh), there is no drop cap (it would detach the first letter from its word), and line heights are more generous.
+* **Mixed text:** user content uses `dir="auto"` / `<bdi>` / `unicode-bidi: plaintext`, so an Arabic message reads right to left inside the French interface and a French poll left to right inside the Arabic one. Emails, usernames, passwords and dates in forms are `dir="ltr"`. Numbers use Western digits.
+* **Messaging in Arabic:** your messages sit at the end of the line (left), received ones at the start (right). The composer and the search fields follow the typed text. The mobile back arrow points right.
+
+---
+
+## 25. Testing the new features
+
+**Automated (backend, `npm test` → 8 files, 99 tests):**
+
+| File | Tests | Scenarios |
+|---|---|---|
+| [messaging.test.ts](backend/tests/messaging.test.ts) | 23 | one direct conversation per pair, whoever starts it, **including concurrent creation** · refusal with yourself / unknown user / no auth · sending, **keyset pagination** (`before`), **catch-up** (`after`), unread counts, partial and full read, read position never moves backwards · **idempotent retries** (same `clientId` → same message) · body validation, `<script>` stored as text, a client-supplied `senderId` ignored · **non-members and platform admins get 404** on every route · **rate limit** (20 accepted, then 429) · conversation search · groups: creator is admin, invalid groups rejected · **admin permissions enforced on the backend** (403 for members, 404 for outsiders, `LAST_ADMIN`) · **removed members lose access** to history, sending and unread counts · late joiners start caught up, leaving promotes an admin, last one out deletes the group · sender names in group history · Socket.IO: **delivery to members only**, unread updates, sends refused for non-members, **duplicated send delivered once**, typing relayed to others only, read receipts, **no delivery to a removed member's open socket**, presence online/offline, **catch-up after reconnection** · preferences stored and returned with the session · directory without emails, LIKE wildcards escaped |
+| [groupPolls.test.ts](backend/tests/groupPolls.test.ts) | 5 | addressed only to a group the author belongs to · visible and votable by members only, **author included**, hidden from strangers (lists, details, votes) · **announced once in the chat** at publication (not as a draft), counted as unread, listed in the group's polls · removed members lose access to the group's polls · public/private polls unchanged (`OWNER_CANNOT_VOTE`) |
+
+**End-to-end (manual, scripted headless browser, not part of the repository).** Two users in parallel against the running app checked the following:
+
+* typing indicator · real-time delivery · "Read" receipt · navbar unread badge (French plural 1 → 2) · **offline → online catch-up with no duplicate** · group creation · group poll published from *Start a poll*, shown in the other member's chat and voted on from the card · switch to Arabic + evening edition, with `lang="ar" dir="rtl" data-theme="dark"` already in the **server-rendered HTML** · `Accept-Language: ar` picked for a visitor · a visitor with a dark OS theme gets the evening edition with no cookie · no horizontal overflow at 390 px in Arabic on every page · no page or console errors.
+
+**How to test by hand:**
+
+1. `docker compose up -d postgres`, then `cd backend && npm run migrate && npm run seed && npm run dev`, then `cd frontend && npm run dev`.
+2. Open two different browsers (or one private window), and sign in as `alice@votelive.local / Alice1234` and `bob@votelive.local / Bob12345`.
+3. **Messaging:** open *Messaging* on both. Type in one (watch the indicator in the other), send, and check the "Read" state. Stay on another page to see the unread badge and the toast.
+4. **Reconnection:** in DevTools set one browser *Offline*, send from the other, then go back *Online*: the message appears once.
+5. **Groups:** create a group, add or remove a member from the details panel, and try the same actions as a non-admin (the server refuses them). The removed member's thread shows "You are no longer a member".
+6. **Group poll:** *Start a poll* from the group header, publish, vote from the card in the chat (the author can vote too), and follow the results live.
+7. **Themes and languages:** use the dateline controls or *Settings*. Reload: no flash. Sign in on another browser: the account's choices follow. In Arabic, check the mirrored layout on a phone-sized window.
 
 ---
 

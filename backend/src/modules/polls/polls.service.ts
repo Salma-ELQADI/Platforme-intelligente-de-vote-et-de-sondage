@@ -4,6 +4,7 @@ import { logger } from '../../config/logger';
 import type { Queryable } from '../../db/pool';
 import { AppError, badRequest, forbidden, isPgError, notFound, PG_ERRORS } from '../../utils/errors';
 import { broadcastPollClosed, sendNotification } from '../../socket/realtime';
+import { postPollMessage } from '../messaging/messaging.service';
 import { insertClosureNotifications, toNotification } from '../notifications/notifications.repository';
 import { findActiveUsersByIdentifiers } from '../users/users.repository';
 import type { PublicUser } from '../users/users.types';
@@ -46,7 +47,26 @@ export async function getPollForViewer(viewer: PublicUser, pollId: string): Prom
   if (poll.access === 'PRIVATE' && !privileged && !(await repo.isInvitedVoter(pollId, viewer.id))) {
     throw notFound('Sondage introuvable');
   }
+  // Group polls follow the group's membership: a removed member loses access at once.
+  if (poll.access === 'GROUP' && !privileged && !(await repo.isGroupMember(poll.group!.id, viewer.id))) {
+    throw notFound('Sondage introuvable');
+  }
   return poll;
+}
+
+/** The author of a group poll must belong to the group it is addressed to. */
+async function requireGroupMembership(db: Queryable, user: PublicUser, groupId: string | null | undefined) {
+  if (!groupId || !(await repo.isGroupMember(groupId, user.id, db))) {
+    const message = 'Vous devez faire partie du groupe pour lui adresser un sondage';
+    throw new AppError(400, 'NOT_GROUP_MEMBER', message, [{ field: 'groupId', message }]);
+  }
+  return groupId;
+}
+
+/** Polls of a group conversation, for its members only. */
+export async function listGroupPolls(viewer: PublicUser, groupId: string) {
+  if (!(await repo.isGroupMember(groupId, viewer.id))) throw notFound('Conversation introuvable');
+  return repo.listGroupPolls(viewer.id, groupId);
 }
 
 /**
@@ -80,6 +100,7 @@ export async function createPoll(user: PublicUser, input: CreatePollInput): Prom
       resultsVisibility: input.resultsVisibility,
       access: input.access,
       endTime: input.endTime,
+      groupId: input.access === 'GROUP' ? await requireGroupMembership(tx, user, input.groupId) : null,
     });
     await repo.insertOptions(tx, pollId, input.options);
     if (input.access === 'PRIVATE') await repo.replaceVoters(tx, pollId, await resolveVoters(tx, user, input.voters));
@@ -103,11 +124,12 @@ export async function updatePoll(user: PublicUser, pollId: string, input: Update
     if (poll.status !== 'DRAFT') {
       throw new AppError(409, 'POLL_NOT_EDITABLE', 'Seul un sondage en brouillon peut être modifié');
     }
-    await repo.updatePollFields(tx, pollId, input);
-    if (input.options) await repo.replaceOptions(tx, pollId, input.options);
-    // A public poll has no invited voters list; a private one keeps it unless a new one is sent.
     const access = input.access ?? poll.access;
-    if (access === 'PUBLIC') await repo.replaceVoters(tx, pollId, []);
+    const groupId = access === 'GROUP' ? await requireGroupMembership(tx, user, input.groupId ?? poll.group_id) : null;
+    await repo.updatePollFields(tx, pollId, { ...input, groupId });
+    if (input.options) await repo.replaceOptions(tx, pollId, input.options);
+    // Only a private poll has an invited voters list; it is kept unless a new one is sent.
+    if (access !== 'PRIVATE') await repo.replaceVoters(tx, pollId, []);
     else if (input.voters) await repo.replaceVoters(tx, pollId, await resolveVoters(tx, user, input.voters));
   }).catch(mapOptionViolation);
   return (await loadPoll(pollId, user))!;
@@ -128,9 +150,13 @@ export async function publishPoll(user: PublicUser, pollId: string): Promise<Pol
     if (poll.access === 'PRIVATE' && (await repo.countVoters(tx, pollId)) === 0) {
       throw new AppError(400, 'NO_VOTERS', 'Un sondage privé doit avoir au moins un votant invité');
     }
+    if (poll.access === 'GROUP') await requireGroupMembership(tx, user, poll.group_id);
     await repo.setPollActive(tx, pollId);
   });
-  return (await loadPoll(pollId, user))!;
+  const published = (await loadPoll(pollId, user))!;
+  // After COMMIT: the poll is announced in the group's chat.
+  if (published.group) await postPollMessage(user, published.group.id, published.id, published.question);
+  return published;
 }
 
 /** ACTIVE → CLOSED before the end time (owner or admin). */

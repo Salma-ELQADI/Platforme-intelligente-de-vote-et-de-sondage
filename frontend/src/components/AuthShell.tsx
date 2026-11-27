@@ -1,4 +1,7 @@
+"use client";
+
 import type { ReactNode } from "react";
+import { useI18n } from "@/contexts/PreferencesContext";
 import { Fleuron } from "./decor";
 
 /**
@@ -6,6 +9,7 @@ import { Fleuron } from "./decor";
  * the form on a sheet of paper on the right (stacked on small screens).
  */
 export function AuthShell({ kicker, title, subtitle, quote, children, footer }: { kicker: string; title: string; subtitle: string; quote: string; children: ReactNode; footer: ReactNode }) {
+  const { t } = useI18n();
   return (
     <div className="grid gap-12 lg:grid-cols-12">
       <div className="lg:col-span-5">
@@ -14,7 +18,7 @@ export function AuthShell({ kicker, title, subtitle, quote, children, footer }: 
         <p className="mt-4 font-serif text-lg italic leading-snug text-umber">{subtitle}</p>
         <figure className="mt-10 hidden border-y border-ink py-6 lg:block">
           <Fleuron size={14} className="text-umber" />
-          <blockquote className="mt-4 font-serif text-3xl italic leading-tight text-ink">« {quote} »</blockquote>
+          <blockquote className="mt-4 font-serif text-3xl italic leading-tight text-ink">{t("auth.quote", { text: quote })}</blockquote>
         </figure>
       </div>
       <div className="lg:col-span-6 lg:col-start-7">

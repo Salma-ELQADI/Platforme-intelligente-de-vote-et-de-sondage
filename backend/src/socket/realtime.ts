@@ -31,3 +31,13 @@ export function broadcastPollClosed(payload: { pollId: string; question: string;
 export function sendNotification(userId: string, notification: Notification) {
   io?.to(userRoom(userId)).emit('notification:new', notification);
 }
+
+/**
+ * Messaging events go to the personal rooms of the recipients, computed from
+ * the database at the moment of sending. There are no conversation rooms to
+ * join or leave: a removed member is simply no longer in the recipient list,
+ * so they cannot keep receiving a group's messages on an old socket.
+ */
+export function sendToUsers(userIds: string[], event: string, payload: unknown) {
+  if (userIds.length) io?.to(userIds.map(userRoom)).emit(event, payload);
+}

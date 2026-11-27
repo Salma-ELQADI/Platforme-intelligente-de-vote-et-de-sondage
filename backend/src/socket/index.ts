@@ -9,6 +9,7 @@ import { findUserById } from '../modules/users/users.repository';
 import { buildResults, getPollForViewer } from '../modules/polls/polls.service';
 import type { PublicUser } from '../modules/users/users.types';
 import { AppError } from '../utils/errors';
+import { registerMessagingHandlers } from './messaging';
 import { pollRoom, setIo, userRoom } from './realtime';
 
 type Ack = (response: { ok: true; data?: unknown } | { ok: false; error: { code: string; message: string } }) => void;
@@ -50,6 +51,7 @@ export function initSocket(httpServer: HttpServer): Server {
     // Personal room: receives this user's notifications in every open tab.
     socket.join(userRoom(user.id));
     logger.debug({ userId: user.id, socketId: socket.id }, 'Socket connected');
+    registerMessagingHandlers(socket, user);
 
     /**
      * poll:join { pollId } → ack { ok, data: { results } }

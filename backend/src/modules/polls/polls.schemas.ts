@@ -34,7 +34,10 @@ const endTime = z.coerce
     message: "La date de clôture doit être comprise entre 1 minute et 1 an à partir de maintenant",
   });
 
-const access = z.enum(['PUBLIC', 'PRIVATE']);
+const access = z.enum(['PUBLIC', 'PRIVATE', 'GROUP']);
+
+/** Group conversation of a GROUP poll (the author must be one of its members). */
+const groupId = z.uuid({ message: 'Groupe invalide' }).nullable();
 
 /** Invited voters of a private poll, given by username or email (resolved by the service). */
 const voters = z
@@ -51,7 +54,8 @@ export const createPollSchema = z.object({
   creationMode: z.enum(['MANUAL', 'AI']).default('MANUAL'),
   access: access.default('PUBLIC'),
   voters: voters.default([]),
-});
+  groupId: groupId.optional(),
+}).refine((d) => d.access !== 'GROUP' || !!d.groupId, { path: ['groupId'], message: 'Choisissez le groupe concerné' });
 
 export const updatePollSchema = z
   .object({
@@ -62,6 +66,7 @@ export const updatePollSchema = z
     resultsVisibility: z.enum(['LIVE', 'AFTER_CLOSE']).optional(),
     access: access.optional(),
     voters: voters.optional(),
+    groupId: groupId.optional(),
   })
   .refine((d) => Object.values(d).some((v) => v !== undefined), { message: 'Aucune modification fournie' });
 

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { PollForm } from "@/components/PollForm";
 import { Alert, ButtonLink, PageHeader, PageLoader } from "@/components/ui";
+import { useI18n } from "@/contexts/PreferencesContext";
 import { useToast } from "@/contexts/ToastContext";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { api, ApiError } from "@/lib/api";
@@ -11,6 +12,7 @@ import type { Poll, PollFormValues } from "@/types";
 
 export function EditPoll({ id }: { id: string }) {
   const { ready, user } = useRequireAuth();
+  const { t, errorText } = useI18n();
   const router = useRouter();
   const toast = useToast();
   const [poll, setPoll] = useState<Poll | null>(null);
@@ -18,7 +20,8 @@ export function EditPoll({ id }: { id: string }) {
 
   useEffect(() => {
     if (!ready) return;
-    api.getPoll(id).then(({ poll }) => setPoll(poll)).catch((e: ApiError) => setError(e.message));
+    api.getPoll(id).then(({ poll }) => setPoll(poll)).catch((e: ApiError) => setError(errorText(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, id]);
 
   const initial = useMemo(
@@ -31,6 +34,7 @@ export function EditPoll({ id }: { id: string }) {
         resultsVisibility: poll.resultsVisibility,
         access: poll.access,
         voters: poll.voters?.map((v) => v.username) ?? [],
+        groupId: poll.group?.id ?? null,
       },
     [poll],
   );
@@ -40,8 +44,8 @@ export function EditPoll({ id }: { id: string }) {
   if (poll.status !== "DRAFT" || poll.creator.id !== user?.id) {
     return (
       <div className="max-w-xl space-y-6">
-        <Alert kind="warning">Seul l’auteur peut modifier un sondage, et uniquement tant qu’il est en brouillon.</Alert>
-        <ButtonLink href={`/polls/${id}`} variant="secondary">Retour au sondage</ButtonLink>
+        <Alert kind="warning">{t("editPoll.ownerOnly")}</Alert>
+        <ButtonLink href={`/polls/${id}`} variant="secondary">{t("editPoll.back")}</ButtonLink>
       </div>
     );
   }
@@ -49,15 +53,15 @@ export function EditPoll({ id }: { id: string }) {
   const save = async (values: PollFormValues, publish: boolean) => {
     await api.updatePoll(id, values);
     if (publish) await api.publishPoll(id);
-    toast(publish ? "Sondage publié." : "Modifications enregistrées.", "success");
+    toast(publish ? t("poll.published") : t("poll.changesSaved"), "success");
     router.push(`/polls/${id}`);
   };
 
   return (
     <>
-      <PageHeader kicker="La rédaction" title="Corriger le brouillon" subtitle="Les modifications restent possibles jusqu’à la publication." />
+      <PageHeader kicker={t("newPoll.kicker")} title={t("editPoll.title")} subtitle={t("editPoll.subtitle")} />
       <div className="max-w-3xl">
-        <PollForm initial={initial} onSubmit={save} submitLabels={{ draft: "Enregistrer", publish: "Enregistrer et publier" }} />
+        <PollForm initial={initial} onSubmit={save} submitLabels={{ draft: t("pollForm.save"), publish: t("pollForm.saveAndPublish") }} />
       </div>
     </>
   );

@@ -3,27 +3,30 @@
 import { useCallback, useEffect, useState } from "react";
 import { PollEntry } from "@/components/PollCard";
 import { Alert, Button, ButtonLink, EmptyState, PageHeader, PageLoader, Tabs } from "@/components/ui";
+import { useI18n } from "@/contexts/PreferencesContext";
 import { useToast } from "@/contexts/ToastContext";
 import { useRequireAuth } from "@/hooks/useRequireAuth";
 import { api, ApiError } from "@/lib/api";
 import type { Poll, PollStatus } from "@/types";
 
-const tabs: { value: PollStatus | undefined; label: string }[] = [
-  { value: undefined, label: "Tous" },
-  { value: "DRAFT", label: "Brouillons" },
-  { value: "ACTIVE", label: "Scrutins ouverts" },
-  { value: "CLOSED", label: "Archives" },
+const tabs: { value: PollStatus | undefined; key: string }[] = [
+  { value: undefined, key: "all" },
+  { value: "DRAFT", key: "drafts" },
+  { value: "ACTIVE", key: "open" },
+  { value: "CLOSED", key: "archives" },
 ];
 
 export default function MyPollsPage() {
   const { ready } = useRequireAuth();
+  const { t, errorText } = useI18n();
   const toast = useToast();
   const [status, setStatus] = useState<PollStatus | undefined>(undefined);
   const [polls, setPolls] = useState<Poll[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    api.myPolls(status).then(({ polls }) => setPolls(polls)).catch((e: ApiError) => setError(e.message));
+    api.myPolls(status).then(({ polls }) => setPolls(polls)).catch((e: ApiError) => setError(errorText(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
   useEffect(() => {
@@ -36,7 +39,7 @@ export default function MyPollsPage() {
       toast(msg, "success");
       load();
     } catch (e) {
-      toast((e as ApiError).message, "error");
+      toast(errorText(e), "error");
     }
   };
 
@@ -47,18 +50,18 @@ export default function MyPollsPage() {
   return (
     <>
       <PageHeader
-        kicker="Vos signatures"
-        title="Mes sondages"
-        subtitle="Vos brouillons, vos scrutins en cours et vos archives."
-        action={<ButtonLink href="/polls/new">Rédiger un sondage</ButtonLink>}
+        kicker={t("myPolls.kicker")}
+        title={t("myPolls.title")}
+        subtitle={t("myPolls.subtitle")}
+        action={<ButtonLink href="/polls/new">{t("pollsIndex.write")}</ButtonLink>}
       />
       <div className="mb-10 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <Tabs label="Filtrer mes sondages" value={status} onChange={(v) => (setStatus(v), setPolls(null))} items={tabs} />
+        <Tabs label={t("myPolls.filter")} value={status} onChange={(v) => (setStatus(v), setPolls(null))} items={tabs.map((tab) => ({ value: tab.value, label: t(`myPolls.${tab.key}`) }))} />
         {counts && status === undefined && (
           <p className="font-mono text-xs text-umber">
-            <span className="text-ink">{polls!.length}</span> sondages <span className="mx-2 text-muted">/</span>
-            <span className="text-ink">{counts.drafts}</span> brouillons <span className="mx-2 text-muted">/</span>
-            <span className="text-ink">{counts.votes}</span> votes reçus
+            {t("myPolls.pollsCount", { count: polls!.length })} <span className="mx-2 text-muted">/</span>
+            {t("myPolls.draftsCount", { count: counts.drafts })} <span className="mx-2 text-muted">/</span>
+            {t("myPolls.votesCount", { count: counts.votes })}
           </p>
         )}
       </div>
@@ -66,7 +69,7 @@ export default function MyPollsPage() {
       {error && <Alert>{error}</Alert>}
       {!polls && !error && <PageLoader />}
       {polls?.length === 0 && (
-        <EmptyState title="Rien sous presse." description="Rédigez votre premier sondage : il apparaîtra ici, du brouillon jusqu’aux résultats." action={<ButtonLink href="/polls/new">Rédiger un sondage</ButtonLink>} />
+        <EmptyState title={t("myPolls.emptyTitle")} description={t("myPolls.emptyText")} action={<ButtonLink href="/polls/new">{t("pollsIndex.write")}</ButtonLink>} />
       )}
       {polls && polls.length > 0 && (
         <div className="grid gap-x-10 gap-y-12 md:grid-cols-2 lg:grid-cols-3">
@@ -78,19 +81,19 @@ export default function MyPollsPage() {
                 <>
                   {p.status === "DRAFT" && (
                     <>
-                      <ButtonLink href={`/polls/${p.id}/edit`} variant="secondary" size="sm">Modifier</ButtonLink>
-                      <Button size="sm" onClick={() => act(() => api.publishPoll(p.id), "Sondage publié.")}>Publier</Button>
-                      <Button variant="danger" size="sm" onClick={() => confirm("Supprimer ce brouillon ?") && act(() => api.deletePoll(p.id), "Brouillon supprimé.")}>
-                        Supprimer
+                      <ButtonLink href={`/polls/${p.id}/edit`} variant="secondary" size="sm">{t("poll.edit")}</ButtonLink>
+                      <Button size="sm" onClick={() => act(() => api.publishPoll(p.id), t("poll.published"))}>{t("poll.publish")}</Button>
+                      <Button variant="danger" size="sm" onClick={() => confirm(t("poll.confirmDeleteDraft")) && act(() => api.deletePoll(p.id), t("poll.draftDeleted"))}>
+                        {t("poll.delete")}
                       </Button>
                     </>
                   )}
                   {p.status === "ACTIVE" && (
-                    <Button variant="secondary" size="sm" onClick={() => confirm("Clore ce scrutin maintenant ?") && act(() => api.closePoll(p.id), "Scrutin clos.")}>
-                      Clore le scrutin
+                    <Button variant="secondary" size="sm" onClick={() => confirm(t("poll.confirmClose")) && act(() => api.closePoll(p.id), t("poll.closed"))}>
+                      {t("poll.close")}
                     </Button>
                   )}
-                  <ButtonLink href={`/polls/${p.id}`} variant="ghost" size="sm">Lire</ButtonLink>
+                  <ButtonLink href={`/polls/${p.id}`} variant="ghost" size="sm">{t("poll.read")}</ButtonLink>
                 </>
               }
             />

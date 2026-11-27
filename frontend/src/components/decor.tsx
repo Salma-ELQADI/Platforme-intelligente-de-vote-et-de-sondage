@@ -19,7 +19,7 @@ export function Fleuron({ size = 12, className, outline = false, style }: { size
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" className={className} style={style} aria-hidden="true">
       <polygon points={khatamPoints(12, 12, 11)} fill={outline ? "none" : "currentColor"} stroke="currentColor" strokeWidth={outline ? 1.2 : 0} strokeLinejoin="round" />
-      {!outline && <polygon points={khatamPoints(12, 12, 5.5)} fill="#f5f0e6" />}
+      {!outline && <polygon points={khatamPoints(12, 12, 5.5)} style={{ fill: "var(--surface)" }} />}
     </svg>
   );
 }
@@ -46,7 +46,7 @@ export function FleuronRule({ className }: { className?: string }) {
 }
 
 /** Loading indicator: a rule being "printed" across the line. */
-export function PressLoader({ label = "Mise sous presse" }: { label?: string }) {
+export function PressLoader({ label }: { label: string }) {
   return (
     <div role="status" className="flex flex-col items-center gap-3">
       <span className="block h-px w-40 overflow-hidden bg-rule">

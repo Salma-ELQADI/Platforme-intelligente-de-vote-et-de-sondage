@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { AuthShell } from "@/components/AuthShell";
 import { Alert, Button, Field, Input, TextLink } from "@/components/ui";
 import { useAuth } from "@/contexts/AuthContext";
+import { useI18n } from "@/contexts/PreferencesContext";
 import { ApiError } from "@/lib/api";
 
 /** Only allow internal redirects (prevents open-redirect via ?next=https://evil.com). */
@@ -12,6 +13,7 @@ export const safeNext = (next: string | null) => (next && next.startsWith("/") &
 
 export function LoginForm() {
   const { login, status } = useAuth();
+  const { t, errorText, fieldError } = useI18n();
   const router = useRouter();
   const next = safeNext(useSearchParams().get("next"));
   const [email, setEmail] = useState("");
@@ -39,27 +41,27 @@ export function LoginForm() {
 
   return (
     <AuthShell
-      kicker="Espace lecteurs"
-      title="Connexion"
-      subtitle="Retrouvez vos sondages, vos bulletins et les résultats que vous suivez."
-      quote="Chaque voix compte, et chacune ne compte qu’une fois."
+      kicker={t("auth.kicker")}
+      title={t("auth.loginTitle")}
+      subtitle={t("auth.loginSubtitle")}
+      quote={t("auth.loginQuote")}
       footer={
         <>
-          Pas encore de compte ?{" "}
-          <TextLink href="/register">Créer un compte</TextLink>
+          {t("auth.noAccount")}{" "}
+          <TextLink href="/register">{t("auth.createAccount")}</TextLink>
         </>
       }
     >
       <form onSubmit={onSubmit} className="space-y-5">
-        <Field label="Email" htmlFor="email" error={error?.fieldError("email")}>
-          <Input id="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+        <Field label={t("auth.email")} htmlFor="email" error={fieldError(error, "email")}>
+          <Input id="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required dir="ltr" />
         </Field>
-        <Field label="Mot de passe" htmlFor="password" error={error?.fieldError("password")}>
-          <Input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        <Field label={t("auth.password")} htmlFor="password" error={fieldError(error, "password")}>
+          <Input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required dir="ltr" />
         </Field>
-        {error && !error.details && <Alert>{error.message}</Alert>}
+        {error && !error.details && <Alert>{errorText(error)}</Alert>}
         <Button type="submit" size="lg" loading={loading} className="w-full">
-          Se connecter
+          {t("auth.login")}
         </Button>
       </form>
     </AuthShell>

@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
+import { usePreferences } from "./PreferencesContext";
 import type { User } from "@/types";
 
 type AuthStatus = "loading" | "authenticated" | "anonymous";
@@ -21,8 +22,10 @@ const AuthContext = createContext<AuthContextValue | null>(null);
  * Holds the current user. The session itself lives in an httpOnly cookie
  * managed by the backend; on page load we simply ask GET /auth/me who we are.
  * This state is only for display: every protected action is re-checked by the API.
+ * The account's language and theme preferences are applied as soon as it is known.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const { adoptAccountPreferences } = usePreferences();
   const [user, setUserState] = useState<User | null>(null);
   const [status, setStatus] = useState<AuthStatus>("loading");
 
@@ -32,14 +35,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then(({ user }) => {
         setUserState(user);
         setStatus("authenticated");
+        adoptAccountPreferences(user);
       })
       .catch(() => setStatus("anonymous"));
-  }, []);
+  }, [adoptAccountPreferences]);
 
-  const setUser = useCallback((u: User) => {
-    setUserState(u);
-    setStatus("authenticated");
-  }, []);
+  const setUser = useCallback(
+    (u: User) => {
+      setUserState(u);
+      setStatus("authenticated");
+      adoptAccountPreferences(u);
+    },
+    [adoptAccountPreferences],
+  );
 
   const login = useCallback(
     async (email: string, password: string) => {
@@ -63,7 +71,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await api.logout().catch(() => undefined);
     setUserState(null);
     setStatus("anonymous");
-  }, []);
+    adoptAccountPreferences(null); // the visitor keeps the current language and theme
+  }, [adoptAccountPreferences]);
 
   return <AuthContext.Provider value={{ user, status, login, register, logout, setUser }}>{children}</AuthContext.Provider>;
 }
